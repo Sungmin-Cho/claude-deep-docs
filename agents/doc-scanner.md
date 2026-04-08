@@ -29,6 +29,12 @@ tools:
 
 ## 스캔 절차
 
+### 0. 환경 분기
+
+프롬프트에서 `git 사용 가능` 정보를 받습니다.
+- **git 사용 가능:** 전체 절차 (Step 1-10) 실행
+- **git 미사용:** Step 4 (이동 추적), Step 5 (신선도) 건너뜀. 나머지 Step 실행.
+
 ### 1. 문서 발견
 
 Glob으로 대상 문서 탐색:
@@ -84,7 +90,31 @@ rename 이력이 있으면 새 경로를 기록.
 - 블록 해시로 다른 문서와 비교
 - 3줄 이상 연속 일치하면 중복으로 기록
 
-### 7. 결과 출력
+### 7. 크기 검사 (Size Check)
+
+각 문서의 라인 수를 측정:
+- CLAUDE.md, AGENTS.md: 200줄 이상이면 경고
+- 기타 docs/: 400줄 이상이면 경고
+분류: auto-fix (제안만)
+
+### 8. 규칙-코드 모순 추론 (Audit-only)
+
+문서의 규칙과 실제 코드 패턴을 비교:
+- 네이밍 규칙 vs 실제 코드의 네이밍 패턴 (Grep으로 샘플링)
+분류: audit-only (false positive 가능성 있으므로 자동 수정 안 함)
+
+### 9. 커버리지 갭 추론 (Audit-only)
+
+코드의 주요 디렉토리/모듈이 문서에 언급되는지 확인:
+- 최상위 src/ 하위 디렉토리 목록 vs 문서 내 참조
+분류: audit-only
+
+### 10. 맵 vs 매뉴얼 비율 (Audit-only)
+
+문서 내 직접 지침 vs 외부 포인터(링크, "참조" 등) 비율 측정.
+분류: audit-only (표시만)
+
+### 11. 결과 출력
 
 `scan-rules.md`의 분류에 따라 결과를 구조화:
 - auto-fix 항목: 🔴 또는 🟡 + "[auto-fix 가능]" 태그
@@ -92,7 +122,7 @@ rename 이력이 있으면 새 경로를 기록.
 
 결과를 JSON 파일로 저장하여 garden과 audit에서 재사용 가능하게 함.
 
-### 8. 결과 저장 (Durable Scan Artifact)
+### 12. 결과 저장 (Durable Scan Artifact)
 
 결과를 `.deep-docs/last-scan.json`에 저장:
 
