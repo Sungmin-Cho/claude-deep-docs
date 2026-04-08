@@ -39,6 +39,10 @@ mkdir -p .deep-docs
    scan-rules.md의 규칙을 따라 auto-fix와 audit-only를 분류하세요."
    ```
 
+   **문서가 하나도 발견되지 않은 경우:**
+   "에이전트 지침 문서(CLAUDE.md, AGENTS.md, README.md 등)를 찾을 수 없습니다. 스캔할 대상이 없습니다."
+   → 종료 (garden, audit도 동일)
+
 3. 결과를 사용자에게 출력:
 
    ```markdown
