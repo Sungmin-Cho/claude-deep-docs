@@ -116,7 +116,7 @@ rename 이력이 있으면 새 경로를 기록.
 
 ### 11. 결과 출력
 
-`scan-rules.md`의 분류에 따라 결과를 구조화:
+`skills/deep-docs-workflow/references/scan-rules.md`의 분류에 따라 결과를 구조화:
 - auto-fix 항목: 🔴 또는 🟡 + "[auto-fix 가능]" 태그
 - audit-only 항목: ℹ️ + "[audit-only]" 태그
 
