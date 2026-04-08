@@ -63,8 +63,9 @@ scan 결과를 기반으로 자동 수정합니다.
 **Steps:**
 
 1. `.deep-docs/last-scan.json` 확인:
-   - 존재하고 10분 이내 → 재사용
-   - 오래되었거나 없음 → scan 먼저 실행하여 `.deep-docs/last-scan.json` 생성
+   - 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
+   - HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
+   - non-git 환경: scanned_at만으로 10분 TTL 판단
 
 2. auto-fix 가능 항목만 추출 (scan-rules.md 기준):
    - 죽은 참조
@@ -107,7 +108,10 @@ scan 결과를 기반으로 자동 수정합니다.
 
 **Steps:**
 
-1. `.deep-docs/last-scan.json` 확인 (garden과 동일 재사용 로직)
+1. `.deep-docs/last-scan.json` 확인:
+   - 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
+   - HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
+   - non-git 환경: scanned_at만으로 10분 TTL 판단
 
 2. audit-metrics.md 기준으로 지표 계산 (last-scan.json의 metrics 사용):
 

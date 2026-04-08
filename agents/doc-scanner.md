@@ -99,6 +99,11 @@ rename 이력이 있으면 새 경로를 기록.
 ```json
 {
   "scanned_at": "2026-04-08T14:30:00Z",
+  "provenance": {
+    "head_sha": "abc123",
+    "branch": "main",
+    "is_git": true
+  },
   "documents": [
     {
       "path": "CLAUDE.md",
@@ -129,5 +134,7 @@ rename 이력이 있으면 새 경로를 기록.
 }
 ```
 
-garden/audit 실행 시 `.deep-docs/last-scan.json`이 존재하고 10분 이내이면 재사용.
-오래되었거나 없으면 scan을 먼저 실행.
+garden/audit 실행 시 `.deep-docs/last-scan.json` 확인:
+- 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
+- HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
+- non-git 환경: scanned_at만으로 10분 TTL 판단

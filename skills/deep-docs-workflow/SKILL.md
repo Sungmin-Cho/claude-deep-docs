@@ -27,7 +27,10 @@ user-invocable: false
 
 ### garden 워크플로우
 
-1. `.deep-docs/last-scan.json` 확인 (10분 이내면 재사용, 아니면 scan 먼저 실행)
+1. `.deep-docs/last-scan.json` 확인:
+   - 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
+   - HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
+   - non-git 환경: scanned_at만으로 10분 TTL 판단
 2. auto-fix 가능 항목만 추출
 3. 각 항목에 대해:
    a. 수정 내용을 diff 형태로 사용자에게 보여줌
@@ -39,7 +42,10 @@ user-invocable: false
 
 ### audit 워크플로우
 
-1. `.deep-docs/last-scan.json` 확인 (garden과 동일 재사용 로직)
+1. `.deep-docs/last-scan.json` 확인:
+   - 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
+   - HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
+   - non-git 환경: scanned_at만으로 10분 TTL 판단
 2. audit-metrics.md의 지표 계산:
    - 파일 크기
    - 신선도 (path-scoped)
