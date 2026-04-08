@@ -32,7 +32,7 @@
 - CLI 명령어 추출 → package.json scripts, Makefile targets과 비교
 - 환경 변수 참조 → .env.example과 비교
 
-수정: 현재 코드 기반으로 업데이트.
+수정: **조건부 auto-fix** — CLI 명령어와 환경 변수는 정확한 대체값이 있으면 auto-fix. 코드 예시는 audit-only (정확한 대체 생성이 어려움).
 
 ### 4. 중복 지침 블록 (Duplicated Instructions)
 
@@ -42,7 +42,7 @@
 - 문서 간 유사 블록 탐지 (3줄 이상 연속 일치)
 - 블록 해시로 빠르게 비교
 
-수정: 대표 위치 하나에 통합, 나머지는 해당 위치로의 포인터로 변환.
+수정: **조건부 auto-fix** — 완전 동일한 블록(3줄 이상 100% 일치)만 auto-fix 대상. 유사하지만 다른 블록은 audit-only.
 
 ### 5. 크기/구성 (Size/Organization)
 
