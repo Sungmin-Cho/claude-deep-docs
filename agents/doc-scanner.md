@@ -37,7 +37,7 @@ tools:
 
 ### 1. 문서 발견
 
-Glob으로 대상 문서 탐색:
+Glob으로 대상 문서 탐색 (다음 디렉토리는 제외: node_modules/, vendor/, .git/, dist/, build/, __pycache__/):
 - `**/CLAUDE.md`
 - `**/AGENTS.md`
 - `README.md`
