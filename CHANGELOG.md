@@ -9,5 +9,13 @@
 - doc-scanner 에이전트
 
 ### Changed
-- Rule 3 (오래된 예시): auto-fix → 조건부 auto-fix (CLI/환경변수만 auto-fix, 코드 예시는 audit-only)
-- Rule 4 (중복 지침): auto-fix → 조건부 auto-fix (완전 동일 블록만 auto-fix, 유사 블록은 audit-only)
+- Rule 3 (Stale Examples): Changed to conditional auto-fix — CLI/env vars only, code examples are audit-only
+- Rule 4 (Duplicated Instructions): Changed to conditional auto-fix — 100% identical blocks only
+- Scan artifact (.deep-docs/last-scan.json) now includes provenance (HEAD SHA, branch) for safe reuse
+
+### Fixed
+- Added explicit scan steps for Rules 5-8 (size, rule-code contradiction, coverage gap, map-vs-manual) in doc-scanner agent
+- Added non-git environment branch in doc-scanner (skip git-dependent steps)
+- Added full path to scan-rules.md reference in agent
+- Excluded node_modules/, vendor/, dist/, build/, __pycache__/ from scan scope
+- Added zero-document fallback with clear message
