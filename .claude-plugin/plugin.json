@@ -1,0 +1,11 @@
+{
+  "name": "deep-docs",
+  "version": "1.0.0",
+  "description": "Document gardening agent — validates freshness and auto-repairs CLAUDE.md, AGENTS.md, and project docs",
+  "author": {
+    "name": "Sungmin-Cho"
+  },
+  "license": "MIT",
+  "category": "Productivity",
+  "keywords": ["documentation", "gardening", "claude-md", "agents-md", "freshness"]
+}
