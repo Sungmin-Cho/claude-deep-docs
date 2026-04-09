@@ -7,6 +7,13 @@ A document gardening agent that validates freshness and auto-repairs agent instr
 > "Too many instructions stop being instructions. They rot fast."
 > — OpenAI, Harness Engineering
 
+### Role in Harness Engineering
+
+deep-docs operates in two quadrants of the [Harness Engineering](https://martinfowler.com/articles/harness-engineering.html) framework within the [Deep Suite](https://github.com/Sungmin-Cho/claude-deep-suite) ecosystem:
+
+- **Inferential Guide**: Maintains the quality of agent instruction documents (CLAUDE.md, AGENTS.md), ensuring guides remain accurate and up-to-date
+- **Computational Sensor**: The doc freshness scan (`last-scan.json`) provides deterministic document health metrics consumed by [deep-dashboard](https://github.com/Sungmin-Cho/claude-deep-dashboard) in the Continuous timing band
+
 ## The Problem
 
 Agent instruction documents go stale quickly. As your codebase evolves, CLAUDE.md and AGENTS.md accumulate dead references, moved paths, and outdated examples. When agents work from stale docs, they make decisions based on information that no longer reflects reality — wrong file paths, deprecated commands, removed functions.

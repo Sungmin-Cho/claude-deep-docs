@@ -7,6 +7,13 @@
 > "지침이 너무 많으면 지침이 되지 않는다. 순식간에 망가진다."
 > — OpenAI, Harness Engineering
 
+### 하네스 엔지니어링에서의 역할
+
+deep-docs는 [Deep Suite](https://github.com/Sungmin-Cho/claude-deep-suite) 생태계에서 [Harness Engineering](https://martinfowler.com/articles/harness-engineering.html) 프레임워크의 두 사분면에 걸쳐 동작합니다:
+
+- **Inferential Guide**: 에이전트 지침 문서(CLAUDE.md, AGENTS.md)의 품질을 유지하여 가이드가 정확하고 최신 상태를 유지하도록 함
+- **Computational Sensor**: 문서 신선도 스캔(`last-scan.json`)이 Continuous 타이밍 밴드에서 [deep-dashboard](https://github.com/Sungmin-Cho/claude-deep-dashboard)가 소비하는 결정적 문서 건강 메트릭을 제공
+
 ## 문제
 
 에이전트 지침 문서는 코드베이스가 발전함에 따라 빠르게 낡아집니다. CLAUDE.md와 AGENTS.md에는 죽은 참조, 이동된 경로, 오래된 예시가 쌓여갑니다. 에이전트가 오래된 문서를 기반으로 작업하면 더 이상 존재하지 않는 파일 경로, 폐기된 명령어, 삭제된 함수에 의존하는 잘못된 결정을 내리게 됩니다.
