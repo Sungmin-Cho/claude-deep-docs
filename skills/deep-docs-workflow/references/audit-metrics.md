@@ -13,17 +13,25 @@
 
 ### 2. 신선도 (Freshness) — Path-scoped
 
-측정 방법:
-1. 문서에서 참조하는 파일 경로들을 추출
-2. 각 경로의 `git log -1 --format=%aI -- {path}` 로 마지막 코드 변경 시각 확인
-3. 문서의 `git log -1 --format=%aI -- {doc_path}` 로 마지막 문서 수정 시각 확인
-4. 코드 변경이 문서 수정보다 최신이면 "stale"
+측정 방법 (`scan-filters/freshness-timestamp.md` 위임):
+1. 문서가 참조하는 파일 경로 추출
+2. 각 경로의 `last_modified_epoch`:
+   - git 커밋 시각: `git log -1 --format=%ct -- <path>` (epoch)
+   - 파일시스템 mtime: `stat -f %m` (BSD) / `stat -c %Y` (GNU)
+   - **dirty 파일만** `max(fs_ts, git_ts)` 채택 (clean checkout에서 mtime이 git time보다 커도 git time 사용)
+3. 문서 자체의 `last_modified_epoch`도 동일 방식
+4. 참조 경로의 last_modified > 문서의 last_modified → stale
 
-점수:
-- 모든 참조 경로가 문서보다 오래됨: 10점 (fresh)
-- 일부 참조 경로가 문서보다 최신: 7점 (partially stale)
-- 대부분 참조 경로가 문서보다 최신: 4점 (stale)
-- 문서가 참조하는 경로가 없음: 해당 지표 제외 (나머지 지표만으로 평균 산출)
+**점수 스케일** (허용 값 `{10, 7, 4, null}`):
+
+| stale 비율 | 점수 |
+|------------|------|
+| `<30%` | 10 |
+| `30–70%` | 7 |
+| `≥70%` | 4 |
+| 참조 경로 없음 | `null` (평균에서 제외) |
+
+**경계 명확화** (M-1): 재현성 위해 정량 구간 정의. 비율은 `stale_count / total_refs`이며 `total_refs`에서 **존재하지 않는 경로는 제외**(BU-5).
 
 ### 3. 참조 정확도 (Reference Accuracy)
 

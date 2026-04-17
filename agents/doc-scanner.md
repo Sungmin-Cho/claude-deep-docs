@@ -77,17 +77,21 @@ rename 이력이 있으면 새 경로를 기록.
 
 ### 5. 신선도 평가 (path-scoped)
 
-각 문서에 대해:
-1. 문서가 참조하는 파일 경로 목록 추출
-2. 각 경로의 마지막 코드 변경 시각:
-   ```bash
-   git log -1 --format=%aI -- {path}
-   ```
-3. 문서의 마지막 수정 시각:
-   ```bash
-   git log -1 --format=%aI -- {doc_path}
-   ```
-4. 코드가 문서보다 최신 → stale 표시
+`scan-filters/freshness-timestamp.md` 필터 사용. 요약:
+
+1. `get_dirty_files()` 세션 시작 시 한 번 계산 (`git diff HEAD --name-only` + `git ls-files --others --exclude-standard`)
+2. 각 문서의 참조 경로에 대해:
+   - `last_modified_epoch(path, dirty_files)` 호출
+   - dirty 파일만 mtime 고려, clean 파일은 git commit time
+   - 존재하지 않는 파일은 `None` 반환 → freshness 계산에서 제외 (total_refs에 카운트 안 됨)
+3. 비율 계산:
+   - `stale_ratio = stale_count / valid_total_refs`
+   - `<0.30` → freshness_score = 10
+   - `0.30 ≤ ratio < 0.70` → 7
+   - `≥0.70` → 4
+   - `valid_total_refs == 0` → `null`
+
+결과 예시 JSON: `"freshness_score": 7` (6 같은 스케일 외 값 사용 금지).
 
 ### 6. 중복 탐지
 
