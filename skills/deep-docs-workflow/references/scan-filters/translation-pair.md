@@ -77,7 +77,7 @@ def group_key(path: str) -> tuple[str, str | None]:
         locale_match = re.match(
             r"^([a-z]{2,3})"              # language
             r"(-[A-Z][a-z]{3})?"          # script (optional): -Hant, -Hans, -Cyrl
-            r"([_-][A-Z]{2})?$",          # region (optional): _KR, -CN
+            r"([_-](?:[A-Z]{2}|[0-9]{3}))?$",  # region (optional): _KR, -CN, -419, -001 (W-1)
             maybe_locale
         )
         if locale_match and locale_match.group(1) in LOCALE_ALLOWLIST:

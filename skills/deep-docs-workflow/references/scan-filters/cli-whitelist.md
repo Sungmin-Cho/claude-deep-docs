@@ -69,7 +69,8 @@ YARN_BUILTINS = NPM_BUILTINS | {
     "autoclean", "check", "generate-lock-entry", "global",
 }
 BUN_BUILTINS = NPM_BUILTINS | {
-    "dlx", "upgrade", "pm", "run", "create", "build", "x", "add",
+    "dlx", "upgrade", "pm", "create", "build", "x",
+    # "run" 제외 — bun run <script>은 Step 1-b에서 처리 (I-1 수정)
 }
 # NOTE (N-2 대응): uv/poetry는 "run"을 built-in에 두지 않음 — Step 1-d granular lookup이 동작하도록.
 UV_BUILTINS = {
@@ -95,7 +96,11 @@ BUILTINS_MAP = {
     "make": MAKE_BUILTINS, "just": JUST_BUILTINS,
 }
 
-SCRIPT_TARGETS_VIA_RUN = {"npm", "pnpm", "yarn", "bun", "uv", "poetry"}
+SCRIPT_TARGETS_VIA_RUN = {"npm", "pnpm", "yarn", "bun"}
+# NOTE (C-1 수정): uv/poetry는 Step 1-b가 아닌 Step 1-d에서 별도 처리.
+#   Step 1-b는 package.json scripts를 lookup하고,
+#   Step 1-d는 pyproject.toml([tool.uv.scripts], [tool.poetry.scripts])를 lookup.
+#   두 dispatch를 섞으면 `uv run pytest`가 package.json에 pytest 없다고 stale 오판.
 
 # 사용자가 `npm foo`처럼 알 수 없는 subcommand를 쓴 경우의 처리 정책
 # - True: stale로 flag (aggressive)
@@ -138,6 +143,8 @@ def check_script_manager(binary, tokens):
         return (True, f"make target '{target}' not in Makefile")
 
     # 1-d. `uv run <script>` / `poetry run <script>` — pyproject 기반
+    # NOTE (W-2 수정): SYSTEM_COMMAND_WHITELIST는 아래 Step 2에서 정의됨.
+    # 단일 모듈로 구현 시 순서 무관, 순수 문서 순서 복사 시 NameError 주의.
     if binary in ("uv", "poetry") and subcmd == "run":
         target = tokens[2] if len(tokens) >= 3 else ""
         if not target:
