@@ -113,11 +113,13 @@ Every scan writes a durable artifact with full provenance:
 
 ```json
 {
-  "scanned_at": "2026-04-08T14:30:00Z",
+  "scanned_at": "2026-04-17T14:30:00Z",
+  "schema_version": 2,
   "provenance": {
+    "is_git": true,
     "head_sha": "abc123",
     "branch": "main",
-    "is_git": true
+    "worktree_hash": "3f8a..."
   },
   "documents": [
     {
@@ -125,7 +127,7 @@ Every scan writes a durable artifact with full provenance:
       "issues": [...],
       "metrics": {
         "size_lines": 85,
-        "freshness_score": 6,
+        "freshness_score": 7,
         "reference_accuracy": 0.85,
         "duplication_count": 1
       }
@@ -139,11 +141,15 @@ Every scan writes a durable artifact with full provenance:
 }
 ```
 
-`garden` and `audit` reuse this artifact if:
-- It is less than **10 minutes old**, and
-- The stored `head_sha` matches the current `git rev-parse HEAD`
+`garden` and `audit` reuse this artifact if ALL hold:
+- `schema_version == 2`
+- Created within **10 minutes**
+- `provenance.head_sha` matches `git rev-parse HEAD` (git env)
+- `provenance.worktree_hash` matches recomputation (git env)
 
-In non-git environments, only the 10-minute TTL applies. If either condition fails, the scan runs again automatically before proceeding.
+The `worktree_hash` covers tracked diff + untracked file list/content (NUL-safe, per-file git-hash-object). See `scan-filters/worktree-hash.md`.
+
+In non-git environments, only the 10-minute TTL applies.
 
 ## Installation
 

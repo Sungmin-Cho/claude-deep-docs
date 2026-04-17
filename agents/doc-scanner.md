@@ -141,11 +141,13 @@ rename 이력이 있으면 새 경로를 기록.
 
 ```json
 {
-  "scanned_at": "2026-04-08T14:30:00Z",
+  "scanned_at": "2026-04-17T10:00:00Z",
+  "schema_version": 2,
   "provenance": {
+    "is_git": true,
     "head_sha": "abc123",
     "branch": "main",
-    "is_git": true
+    "worktree_hash": "3f8a..."
   },
   "documents": [
     {
@@ -156,14 +158,14 @@ rename 이력이 있으면 새 경로를 기록.
           "category": "auto-fix",
           "severity": "high",
           "line": 42,
-          "reference": "src/auth/middleware.ts",
-          "suggestion": "src/auth/auth-middleware.ts",
+          "current_value": "src/auth/middleware.ts",
+          "suggested_value": "src/auth/auth-middleware.ts",
           "evidence": "git rename detected"
         }
       ],
       "metrics": {
         "size_lines": 85,
-        "freshness_score": 6,
+        "freshness_score": 7,
         "reference_accuracy": 0.85,
         "duplication_count": 1
       }
@@ -177,7 +179,13 @@ rename 이력이 있으면 새 경로를 기록.
 }
 ```
 
-garden/audit 실행 시 `.deep-docs/last-scan.json` 확인:
-- 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
-- HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
-- non-git 환경: scanned_at만으로 10분 TTL 판단
+garden/audit 실행 시 `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙):
+
+1. `schema_version == 2` — 버전 불일치 시 재-scan
+2. `scanned_at`이 현재 기준 10분 이내
+3. `provenance.head_sha == git rev-parse HEAD` (git 환경만)
+4. `provenance.worktree_hash == scan-filters/worktree-hash.md 재계산값` (git 환경만)
+
+하나라도 불일치하면 재-scan. **garden이 1건이라도 수정 적용 시** 종료 시 아티팩트 삭제 → 다음 audit은 반드시 재-scan.
+
+**non-git 환경**: `provenance = { "is_git": false }` 만. 재사용은 `scanned_at` 10분 TTL만 판단.

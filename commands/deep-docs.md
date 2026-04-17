@@ -66,10 +66,13 @@ scan 결과를 기반으로 자동 수정합니다.
 
 **Steps:**
 
-1. `.deep-docs/last-scan.json` 확인:
-   - 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
-   - HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
-   - non-git 환경: scanned_at만으로 10분 TTL 판단
+1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙):
+   - `schema_version == 2`
+   - `scanned_at` 10분 이내
+   - `provenance.head_sha` 일치 (git)
+   - `provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
+   - 하나라도 실패 → 재-scan
+   - non-git 환경: scanned_at TTL만
 
 2. auto-fix 가능 항목만 추출 (scan-rules.md 기준):
    - 죽은 참조
@@ -106,16 +109,23 @@ scan 결과를 기반으로 자동 수정합니다.
    - 참고: N건
    ```
 
+6. **아티팩트 무효화** (리뷰 H-2 대응):
+   - 1건 이상 수정 적용 시 `.deep-docs/last-scan.json` 삭제
+   - 다음 audit/garden은 반드시 재-scan
+
 ### /deep-docs audit
 
 문서 품질을 정량 평가합니다.
 
 **Steps:**
 
-1. `.deep-docs/last-scan.json` 확인:
-   - 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
-   - HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
-   - non-git 환경: scanned_at만으로 10분 TTL 판단
+1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙):
+   - `schema_version == 2`
+   - `scanned_at` 10분 이내
+   - `provenance.head_sha` 일치 (git)
+   - `provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
+   - 하나라도 실패 → 재-scan
+   - non-git 환경: scanned_at TTL만
 
 2. audit-metrics.md 기준으로 지표 계산 (last-scan.json의 metrics 사용):
 
