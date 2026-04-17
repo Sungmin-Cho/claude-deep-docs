@@ -12,7 +12,9 @@ tools:
   - Glob
   - Grep
   - Bash
+  - Write
 ---
+<!-- Claude Code plugin은 model alias(`sonnet`) 허용. 특정 버전 고정 필요 시 `claude-sonnet-4-6` 등 full ID 사용 가능. -->
 
 # Document Scanner Agent
 

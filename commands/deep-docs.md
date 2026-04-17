@@ -1,5 +1,5 @@
 ---
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion
 description: 에이전트 지침 문서의 신선도 검증(scan), 자동 정비(garden), 품질 리포트(audit)를 수행합니다.
 argument-hint: "<scan|garden|audit>"
 ---
@@ -31,12 +31,12 @@ mkdir -p .deep-docs
 1. git 리포지터리 여부 확인
    - git이 아니면: 신선도 측정과 이동 추적은 건너뛰고, 참조 검증만 수행
 
-2. doc-scanner 에이전트를 spawn하여 스캔 실행:
+2. doc-scanner 에이전트를 Task 도구로 spawn:
    ```
-   Agent(doc-scanner): "프로젝트의 에이전트 지침 문서를 스캔하세요.
+   Task(subagent_type="doc-scanner", prompt="프로젝트의 에이전트 지침 문서를 스캔하세요.
    프로젝트 루트: {cwd}
    git 사용 가능: {is_git}
-   scan-rules.md의 규칙을 따라 auto-fix와 audit-only를 분류하세요."
+   scan-rules.md의 규칙을 따라 auto-fix와 audit-only를 분류하세요.")
    ```
 
    **문서가 하나도 발견되지 않은 경우:**
