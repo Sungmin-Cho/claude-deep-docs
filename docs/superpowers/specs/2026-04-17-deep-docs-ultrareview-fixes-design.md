@@ -2,7 +2,7 @@
 
 - **Date**: 2026-04-17
 - **Author**: Sungmin-Cho (with Claude Code)
-- **Status**: Revised (deep-review REQUEST_CHANGES 대응, `.deep-review/reports/2026-04-17-review.md` 반영)
+- **Status**: Revised v3 (deep-review 2차 REQUEST_CHANGES 대응 — heuristic을 `scan-filters/` 디렉토리로 분리, `.deep-review/reports/2026-04-17-round2-review.md` 반영)
 - **Source Review**: `docs/ultrareview-2026-04-17.md`
 - **Target Version**: v1.1.0 (semver minor)
 
@@ -26,7 +26,7 @@
 
 ### 3.1 File Inventory
 
-**수정 (9 항목 / 10 파일)**
+**수정 (9 항목 / 10 파일)** + **신규 `scan-filters/` 디렉토리 (6 파일 + README)**
 | 파일 | 변경 요지 |
 |------|-----------|
 | `.claude-plugin/plugin.json` | 버전 `1.0.0` → `1.1.0` |
@@ -39,12 +39,19 @@
 | `README.md` + `README.ko.md` | scoring 밴드 부등호화, 새 아티팩트 안내, 설치 안내 보강 |
 | `CHANGELOG.md` | v1.1.0 섹션 추가 |
 
-**추가 (3)**
+**추가 (10)**
 | 파일 | 목적 |
 |------|------|
 | `scripts/verify-fixes.sh` | grep 기반 스펙 준수 체크 |
 | `.gitignore` | `.deep-docs/` 제외 |
 | `docs/superpowers/specs/2026-04-17-deep-docs-ultrareview-fixes-design.md` | 본 문서 |
+| `skills/deep-docs-workflow/references/scan-filters/README.md` | 필터 디렉토리 인덱스 |
+| `skills/deep-docs-workflow/references/scan-filters/translation-pair.md` | 번역 쌍 그룹핑 필터 |
+| `skills/deep-docs-workflow/references/scan-filters/code-fence.md` | fenced block + segment 분리 |
+| `skills/deep-docs-workflow/references/scan-filters/reference-extraction.md` | 참조 추출 |
+| `skills/deep-docs-workflow/references/scan-filters/cli-whitelist.md` | CLI stale 판정 |
+| `skills/deep-docs-workflow/references/scan-filters/worktree-hash.md` | NUL-safe artifact 해시 |
+| `skills/deep-docs-workflow/references/scan-filters/freshness-timestamp.md` | epoch 기반 신선도 |
 
 **삭제 (1)**
 | 파일 | 이유 |
@@ -58,122 +65,59 @@
 
 ---
 
-## 4. Heuristic Specifications
+## 4. Heuristic Specifications — `scan-filters/` 디렉토리로 분리
 
-### 4.1 번역 쌍 탐지 (C-1)
+**v3 변경**: heuristic 세부는 **독립 필터 파일**로 분리하여 각각 자기 완결적으로 리뷰·테스트 가능하게 한다. 본 스펙은 **조합 규칙**만 기술한다.
 
-**규칙**: 중복 검사 전, 파일명을 basename 기준으로 그룹핑하여 동일 그룹 내 중복은 auto-fix 대상에서 제외. **원본(locale segment 없는) 파일도 그룹에 포함.**
-
-**그룹핑 알고리즘 (pseudocode)**:
-```
-for each markdown file `F` in scan scope:
-    # 1. 파일명에서 trailing locale segment 분리
-    m = re.match(r'^(?P<base>.+?)(?:\.(?P<locale>[a-z]{2}([_-][A-Z]{2})?))?\.md$', basename(F))
-    if not m: continue
-    group_key = m.group('base')          # "README", "ARCHITECTURE", ...
-    groups[group_key].append(F)
-```
-
-**핵심 변경점** (리뷰 X-1 대응):
-- `basename`을 `.+?` (lazy + non-greedy)로 — `my.project.README.ko.md`도 base=`my.project.README`로 추출.
-- locale segment는 `optional` — `README.md`와 `README.ko.md`가 **동일 그룹에 들어감**.
-- locale에 underscore(`_KR`) + **하이픈(`-KR`)** 모두 허용 (BCP 47 호환).
-
-**그룹 크기 판정**:
-- `len(groups[key]) == 1` → 단독 파일, 중복 검사 일반 경로 (audit-only 제외 대상 아님)
-- `len(groups[key]) >= 2` → 동일 그룹, **그룹 내 모든 쌍의 중복은 audit-only**
-
-**그룹 예시**:
-- 그룹 `README`: `{ README.md, README.ko.md, README.ja.md, README.zh-CN.md, README.pt_BR.md }`
-- 그룹 `ARCHITECTURE`: `{ ARCHITECTURE.md, ARCHITECTURE.ja.md }` — 영어 원본 포함
-- 그룹 `my.project.README`: `{ my.project.README.md, my.project.README.ko.md }`
-
-**Dogfood 테스트 케이스** (verify-fixes.sh §7.4에 포함):
-- 5+ 패턴: `README.md`, `README.ko.md`, `README.zh-CN.md`, `my.project.README.ko.md`, `ARCHITECTURE.md`(단독) 각각이 기대하는 그룹에 속하는지 확인.
-
-### 4.2 코드펜스 제외 (C-1, CX-1 대응)
-
-중복 블록 탐지 시 ```` ``` ```` 로 둘러싸인 fenced code block은 비교 대상에서 제외. 언어 힌트(`json`, `bash` 등) 무관.
-
-**구현 — per-segment hashing (리뷰 CX-1 대응)**:
-
-fenced block을 **선-제거 후 concatenate**하면, 블록 전후의 prose가 인접해 보이며 원래 non-adjacent였던 3줄이 duplicate로 오판될 수 있음. 이를 방지하기 위해 **segment 단위 분리 해싱**:
+### 4.0 필터 디렉토리 구조
 
 ```
-Algorithm: split_into_segments(document)
-    segments = []
-    current = []
-    for line in document.lines:
-        if line.startswith("```"):
-            if current: segments.append(current); current = []
-            toggle_fence_state()        # inside fence: 무시
-            continue
-        if inside_fence: continue       # fenced 내부 라인 skip
-        current.append(line)
-    if current: segments.append(current)
-    return segments                     # 각 segment는 코드펜스로 단절된 prose 블록
+skills/deep-docs-workflow/references/scan-filters/
+├── README.md                    # 필터 목록 + 호출 순서
+├── translation-pair.md          # 번역 쌍 그룹핑 (C-1, X-1, NC-1, Codex P2)
+├── code-fence.md                # fenced block 인식 + segment 분리 (CX-1, NEW-FENCE-INDENT)
+├── reference-extraction.md      # backtick/link 참조 추출 (H-3, X-3)
+├── cli-whitelist.md             # CLI stale 판정 (M-7, X-4, NEW-CLI-BYPASS)
+├── worktree-hash.md             # artifact 재사용 해시 (H-1, X-2, NEW-RCE)
+└── freshness-timestamp.md       # path별 last-modified (H-4, H-6, NC-2)
 ```
 
-- 3-line sliding window 해시는 **각 segment 내부에서만** 계산
-- segment 경계를 넘어서는 3-line 매칭은 불가 → false-positive 제거
-- fenced block 자체는 절대 중복 후보 아님 (의도된 코드 예시 보호)
+각 필터 파일은 공통 구조: **목적 / 입력 / 출력 / 알고리즘 / Bash-equivalent / Edge Case 매트릭스 / Failure Modes / 통합 지점 / 버전**.
 
-### 4.3 Backtick 참조 필터 (H-3, X-3 대응)
+### 4.1 조합 규칙 (스캔 Step별 필터 호출)
 
-Dead-reference 후보 자격 (**모두** 만족):
+| doc-scanner.md Step | 호출 필터 | 역할 |
+|--------------------|-----------|------|
+| Step 1 (문서 발견) 후 | [`translation-pair.md`](../skills/deep-docs-workflow/references/scan-filters/translation-pair.md) | 번역 가족 그룹 맵 생성 |
+| Step 2 (참조 추출) 전 | [`code-fence.md`](../skills/deep-docs-workflow/references/scan-filters/code-fence.md) | segment 분할 |
+| Step 2 (참조 추출) | [`reference-extraction.md`](../skills/deep-docs-workflow/references/scan-filters/reference-extraction.md) | non-fenced segment에서만 추출 |
+| Step 3 (참조 검증, CLI) | [`cli-whitelist.md`](../skills/deep-docs-workflow/references/scan-filters/cli-whitelist.md) | stale 판정 (2단계 lookup → whitelist) |
+| Step 5 (신선도) | [`freshness-timestamp.md`](../skills/deep-docs-workflow/references/scan-filters/freshness-timestamp.md) | epoch 기반 max(git_ts, fs_ts) |
+| Step 6 (중복 탐지) | `code-fence.md` + `translation-pair.md` | segment 내 3-line 해시, 번역 가족 내부는 audit-only |
+| Step 12 (아티팩트 저장) | [`worktree-hash.md`](../skills/deep-docs-workflow/references/scan-filters/worktree-hash.md) | NUL-safe provenance 해시 |
 
-1. backtick(` `` `) 내부 문자열
-2. **§4.2의 segment 분할 결과 non-fenced 영역에 위치** — 즉, fenced code block(```` ``` ````) **내부의 backtick 식별자는 제외**
-3. 다음 중 **하나 이상** 만족:
-   - 슬래시(`/`) 1개 이상 포함
-   - 확장자 whitelist(아래)에 매치
-4. 다음 중 **어느 것에도** 해당하지 않음:
-   - `https?://` URL
-   - 절대 경로(`/usr/`, `/etc/`, `/tmp/` 등으로 시작)
-   - glob 단독(`**`, `*`)
+### 4.2 스펙 레벨 조합 원칙 (필터 간 상호작용)
 
-**확장자 whitelist**: `.ts .tsx .js .jsx .mjs .cjs .py .md .json .sh .go .rs .rb .java .kt .cpp .c .h .yml .yaml .toml .css .html .sql .vue .svelte`
+1. **Translation-pair 우선**: 중복 탐지 결과(Step 6)의 각 duplicate 쌍은 `translation-pair.md`의 그룹 맵을 통해 **auto-fix / audit-only** 카테고리가 결정된다. 동일 그룹 내부 중복은 audit-only.
 
-조건 미달 backtick 문자열은 dead-reference 후보에서 스킵 → `true`, `npm`, `MyComponent` 등이 false-positive 유발하지 않음.
+2. **code-fence가 reference-extraction의 전제**: `reference-extraction.md`는 `code-fence.md`의 segment 출력을 입력으로 받는다. fenced block 내부 참조는 **아예 추출되지 않음** (X-3 해결).
 
-**중요 (리뷰 X-3 대응)**: 코드펜스 **내부**의 `import { foo } from './bar'`이나 예시 경로는 dead-reference로 격상되지 않음. 코드블록은 **의도된 예시**이므로 audit-only 분류에서도 다루지 않고, 아예 추출 단계에서 제외한다. 이는 `agents/doc-scanner.md`의 참조 추출 Step 2에도 반영되어야 함 (커밋 2).
+3. **freshness-timestamp는 doc 자체에도 적용**: 문서와 참조 경로 모두 `freshness-timestamp.md`의 동일 로직으로 시각 판정. 양쪽 동일 기준으로 stale 비율 산출.
 
-### 4.4 CLI 명령어 비교 범위 (M-7, X-4 대응)
+4. **CLI Rule 순서 역전 (NEW-CLI-BYPASS 해결)**: `cli-whitelist.md`에서 **project-specific 2단계 lookup(npm/make)**이 **system whitelist보다 먼저** 시도됨. `npm run missing-script`는 whitelist shortcut으로 새지 않음.
 
-**토큰화 규칙** (리뷰 X-4 대응 — 추출된 CLI 참조와 whitelist를 비교 가능한 형태로 정규화):
+5. **Determinism 원칙**: `$PATH` lookup은 default OFF. 켜는 경우 `last-scan.json.provenance.path_check_enabled: true`로 기록하여 재사용 시 설정 일치 검증.
 
-1. 추출된 CLI 문자열(예: `git log -1 --format=%aI`, `npm run build`, `make test`, `python manage.py`)을 whitespace split
-2. **첫 토큰 = binary**, 두 번째 토큰 = subcommand (필요 시)
-3. 특수 패턴 — **binary + subcommand 2단계 lookup**:
-   - `npm run <script>` / `pnpm run <script>` / `yarn <script>` → `scripts` 키에서 `<script>` 확인
-   - `make <target>` → `Makefile` target에서 `<target>` 확인
-   - `uv run <script>` → `pyproject.toml`의 `[tool.uv.scripts]` 확인 (있으면)
+### 4.3 Dogfood 테스트 벡터
 
-**Stale 판정** — 다음 중 **어느 것에도** 해당하지 않을 때만 stale 표시:
+각 필터의 Edge Case 매트릭스에서 추출한 통합 테스트 세트 — §7.5에서 실제 실행:
 
-1. binary가 **시스템 명령 whitelist**에 있음 — 바로 통과 (인자 확인 불필요)
-2. binary가 `npm`/`pnpm`/`yarn` 중 하나이고 subcommand가 `package.json`의 `scripts`에 있음
-3. binary가 `make`이고 subcommand가 `Makefile` target에 있음
-4. binary가 `$PATH`에 존재 (optional, Bash `command -v` 체크)
-5. **(새 규칙)** 참조가 **코드펜스 내부** 예시이면 — §4.3 Step 2와 동일 — 애초에 추출 대상 아님
-
-**시스템 명령 whitelist** (고정, 확장됨):
-```
-git npm pnpm yarn node deno bun
-python python3 uv pip poetry pipx
-cargo rustc go pytest tox
-make cmake ninja
-ls find grep rg sed awk cat wc head tail sort uniq cut tr
-curl wget
-docker kubectl helm
-gh terraform aws gcloud az heroku
-bash sh zsh fish
-```
-
-**비교 예시**:
-- `git log -1 --format=%aI` → binary=`git`, whitelist 포함 → stale **아님**
-- `npm run build` → binary=`npm`, subcommand=`build`, `package.json scripts.build` 있으면 **아님**, 없으면 stale
-- `python manage.py` → binary=`python`, whitelist 포함 → stale **아님** (인자 `manage.py`의 존재 여부는 dead-reference 규칙(§4.3)에서 별도 처리)
+- **Translation (C-1)**: `README.md` + `README.ko.md` 쌍은 동일 그룹, `config.md` + `config.go.md`는 다른 그룹.
+- **Code fence (CX-1)**: 3 space 들여쓰기된 ```` ``` ````도 fence로 인식.
+- **Reference (X-3)**: fenced block 내부 `` `src/auth/middleware.ts` ``은 dead-ref 후보 아님.
+- **CLI (NEW-CLI-BYPASS)**: `npm run nonexistent-script`는 stale, `npm run build`(package.json 확인)는 pass.
+- **Worktree hash (NEW-RCE)**: 파일명 `$(echo hacked).md` 포함해도 shell 실행 안 됨 + 해시 결정적.
+- **Freshness (NC-2)**: 커밋된 git 시간보다 mtime이 더 새로우면 mtime 채택 (Linux/macOS 모두).
 
 ---
 
@@ -196,18 +140,11 @@ bash sh zsh fish
 }
 ```
 
-- `worktree_hash` (리뷰 X-2 대응 — **tracked + untracked 모두 포함**):
-  ```bash
-  # tracked 변경 + untracked 파일 목록 + 문서 본문 모두 포함
-  { git diff HEAD; git ls-files --others --exclude-standard; \
-    git ls-files --others --exclude-standard | xargs -I{} sh -c 'printf "%s\n" "{}"; cat "{}" 2>/dev/null'; } \
-    | shasum -a 1 | awk '{print $1}'
-  ```
-  **macOS/Linux 호환 (리뷰 O-6 대응)**:
-  - `shasum -a 1` 사용 (macOS 기본 제공, Linux coreutils에도 있음)
-  - `sha1sum`(GNU coreutils)은 macOS 기본 미제공이므로 사용 금지
-  - 구현 시 `command -v shasum >/dev/null || { echo "shasum required" >&2; exit 1; }` 체크
-  - clean tree(tracked/untracked 변경 전무)면 `shasum`은 빈 입력에 대한 해시(`da39a3ee...`) 반환 — 리터럴 `"clean"` 대체 금지, 실제 해시 사용
+- `worktree_hash` — **`scan-filters/worktree-hash.md` 참조**. 핵심 속성:
+  - `git diff HEAD --binary` + `git ls-files -z --others --exclude-standard` + NUL-safe bash loop로 tracked/untracked 모두 반영 (X-2)
+  - `xargs -I{} sh -c '...'` **금지** — 파일명 RCE 위험 (NEW-RCE)
+  - `shasum -a 1` 사용, `sha1sum` 금지 (macOS 호환, O-6)
+  - 파일명에 `$()`, backtick, dash-prefix(`-rf`) 포함해도 안전
 - **non-git 환경**: `provenance`는 `{ "is_git": false }` 만. 다른 필드 생략.
 - `schema_version` (리뷰 O-2, O-4 대응): **`2`로 bump**. 이는 §5.5 필드 rename(breaking change) 반영. consumer는 §5.2의 재사용 규칙에서 version 비교 수행.
 
@@ -236,21 +173,13 @@ bash sh zsh fish
 
 `doc-scanner.md` 예시 JSON의 `"freshness_score": 6` → `7`로 정정.
 
-**Stale 판정의 timestamp 소스 (리뷰 O-8, H-6 대응)**:
+**Stale 판정의 timestamp 소스 — `scan-filters/freshness-timestamp.md` 참조**. 핵심 속성:
 
-문서/파일의 "마지막 수정 시각"을 판정할 때는 **workspace mtime까지 고려**:
-
-```bash
-# 각 경로 P에 대해:
-git_time=$(git log -1 --format=%aI -- "$P" 2>/dev/null || true)
-mtime=$(stat -f %Sm -t %FT%T%z "$P" 2>/dev/null || stat -c %y "$P" 2>/dev/null || true)
-# 둘 중 더 늦은 시각을 채택 (workspace에서 수정했으나 미커밋인 경우 반영)
-last_modified="$(printf '%s\n%s\n' "$git_time" "$mtime" | sort -r | head -1)"
-```
-
-- macOS `stat -f` / Linux `stat -c` 양쪽 호환 (리뷰 O-6 대응 확장)
-- 워킹트리에서 수정됐지만 미커밋인 문서 — git timestamp는 오래되었지만 mtime은 최신 → `max` 채택으로 올바르게 반영
-- 이 규칙은 문서 경로·참조 경로 모두에 동일 적용
+- **Epoch seconds로 수치 비교** (문자열 `sort -r` 금지 — Linux에서 `T` vs space 문제로 잘못된 max 반환, NC-2)
+- `git log -1 --format=%ct -- "$P"` (epoch, 포맷 해석 불필요)
+- macOS `stat -f %m` / Linux `stat -c %Y` / fallback `date -r +%s` — 모두 epoch 정수
+- `max(git_ts, fs_ts)` 채택 — workspace에서 수정된 미커밋 파일이 올바르게 최신으로 인식됨 (H-6)
+- 타임존 무관 (epoch는 절대시각)
 
 ### 5.4 `.deep-docs/garden-ignored.json` 새 아티팩트 (M-8)
 
@@ -395,17 +324,22 @@ grep 기반 스펙 준수 체크 (12+ 항목):
 - C-2: `doc-scanner.md`의 `tools`에 `Write`
 - C-3: `commands/deep-docs.md`의 `allowed-tools`에 `Task` 포함, `Agent` 미포함
 - C-3 (본문): `Agent(doc-scanner):` pseudo-code가 본문에 **잔존하지 않음** (Task로 완전 교체)
-- H-1: `worktree_hash` 문구 존재 AND `git ls-files --others` 포함 명령 사용 (untracked 포함 증명)
 - H-4: `"freshness_score": 6` 미존재
 - M-3: size 임계값 strict 부등호(`>100`, `>300`, `>200`) 명시
 - M-8: `garden-ignored.json` 문서화
-- X-1 (번역쌍): `README.ko.md`·`README.zh-CN.md`·`my.project.README.ko.md` 패턴이 `scan-rules.md`에 명시
 - schema_version: `schema_version.*2` 명시 (O-2/O-4 대응)
 - L-2: `package.json`의 `"private": true`
 - L-3: `hooks/hooks.json` 부재 또는 빈 객체 아님
 - L-5: `.gitignore`에 `.deep-docs/`
-- macOS 호환: `sha1sum` 미사용, `shasum` 사용 확인
 - Version sync: `plugin.json`과 `package.json` 버전 일치
+- **Filter files 존재** (v3 분리):
+  - `scan-filters/translation-pair.md` 존재 + ISO 언어 allowlist 포함 (NC-1)
+  - `scan-filters/code-fence.md` 존재 + 들여쓰기 fence 규칙(`{0,3}`) 포함 (NEW-FENCE-INDENT)
+  - `scan-filters/reference-extraction.md` 존재 + "non-fenced segment" 명시 (X-3)
+  - `scan-filters/cli-whitelist.md` 존재 + "project lookup first" 순서 명시 (NEW-CLI-BYPASS)
+  - `scan-filters/worktree-hash.md` 존재 + `xargs -I{} sh -c` **금지** 문구 포함 (NEW-RCE)
+  - `scan-filters/freshness-timestamp.md` 존재 + `%ct` epoch 사용 명시 + `sort -r` 미사용 (NC-2)
+  - 모든 filter 파일에 `shasum -a 1` 사용, `sha1sum` 미사용 (O-6)
 
 전체 실행: `bash scripts/verify-fixes.sh`. fail 발생해도 끝까지 돌리고 마지막 exit code.
 
@@ -437,7 +371,7 @@ grep 기반 스펙 준수 체크 (12+ 항목):
 | # | 제목 | 포함 | 주요 파일 |
 |---|------|------|-----------|
 | 1 | `fix(agent): wire up Write tool and correct Task permission` | C-2, C-3, M-4 | `agents/doc-scanner.md`, `commands/deep-docs.md` |
-| 2 | `feat(scan): add dedup heuristics for translation pairs and code fences` | C-1, H-3, M-7 | `skills/.../scan-rules.md`, `agents/doc-scanner.md` |
+| 2 | `feat(scan): add scan-filters directory (translation/code-fence/ref-extract/cli/hash/freshness)` | C-1, H-3, M-7, NC-1, NC-2, NEW-RCE, NEW-CLI-BYPASS, NEW-FENCE-INDENT | `skills/.../scan-filters/*.md` (6 신규), `skills/.../scan-rules.md`, `agents/doc-scanner.md` |
 | 3 | `feat(artifact): add worktree_hash provenance and garden invalidation` | H-1, H-2, H-5 | `skills/.../SKILL.md`, `commands/deep-docs.md`, `agents/doc-scanner.md`, README×2 |
 | 4 | `fix(audit): unify freshness scale and define stale thresholds` | H-4, H-6, M-1 | `skills/.../audit-metrics.md`, `agents/doc-scanner.md` |
 | 5 | `fix(audit): unify size thresholds and add rounding/band rules` | M-2, M-3, L-6 | `skills/.../audit-metrics.md`, `skills/.../scan-rules.md`, README×2 |
