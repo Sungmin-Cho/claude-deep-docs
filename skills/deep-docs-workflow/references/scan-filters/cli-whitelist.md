@@ -32,37 +32,97 @@ binary = tokens[0] if tokens else ""
 subcmd = tokens[1] if len(tokens) >= 2 else ""
 ```
 
-### Step 1. Project-specific 2단계 lookup (최우선)
+### Step 1. Project-specific 2단계 lookup (최우선, BU-1 대응)
 
-binary가 script manager면 subcmd를 project 파일과 대조:
+binary가 script manager면 먼저 **built-in 서브커맨드 allowlist** 체크, 다음으로 `run <script>` 분기에서만 project 파일과 대조.
+
+**각 매니저의 built-in subcommand set** (round 3 리뷰 BU-1 수정):
 
 ```python
-SCRIPT_MANAGERS = {
-    "npm": ("package.json", "scripts"),
-    "pnpm": ("package.json", "scripts"),
-    "yarn": ("package.json", "scripts"),
-    "bun": ("package.json", "scripts"),
-    "make": ("Makefile", "targets"),
-    "just": ("justfile", "recipes"),
-    "uv": ("pyproject.toml", "[tool.uv.scripts]"),
-    "poetry": ("pyproject.toml", "[tool.poetry.scripts]"),
+NPM_BUILTINS = {
+    "install", "i", "ci", "test", "t", "publish", "audit", "init",
+    "create", "login", "logout", "whoami", "adduser", "token",
+    "version", "update", "up", "outdated", "dedupe", "prune",
+    "exec", "x", "start", "stop", "restart", "pack", "unpublish",
+    "uninstall", "un", "remove", "rm", "rb", "add", "a",
+    "link", "ln", "unlink", "cache", "config", "doctor",
+    "help", "search", "s", "se", "view", "info", "show",
+    "team", "org", "profile", "hook", "access", "deprecate",
+}
+PNPM_BUILTINS = NPM_BUILTINS | {"dlx", "store", "env", "import", "fetch", "patch"}
+YARN_BUILTINS = NPM_BUILTINS | {"workspaces", "workspace", "why", "dlx"}
+BUN_BUILTINS = NPM_BUILTINS | {"dlx", "upgrade", "pm", "create"}
+UV_BUILTINS = {
+    "sync", "add", "remove", "lock", "run", "tool", "python",
+    "pip", "venv", "tree", "export", "init", "build", "publish",
+    "cache", "self", "version", "help",
+}
+POETRY_BUILTINS = {
+    "install", "add", "remove", "update", "lock", "run", "shell",
+    "build", "publish", "init", "new", "version", "env", "config",
+    "cache", "search", "show", "check", "about", "self", "source",
+}
+MAKE_BUILTINS: set = set()   # make는 built-in subcommand 없음 (모두 target)
+JUST_BUILTINS = {"--list", "--help", "--version", "--init"}
+
+BUILTINS_MAP = {
+    "npm": NPM_BUILTINS, "pnpm": PNPM_BUILTINS,
+    "yarn": YARN_BUILTINS, "bun": BUN_BUILTINS,
+    "uv": UV_BUILTINS, "poetry": POETRY_BUILTINS,
+    "make": MAKE_BUILTINS, "just": JUST_BUILTINS,
 }
 
-if binary in SCRIPT_MANAGERS:
-    # npm/pnpm/yarn/bun는 "run" subcommand 자주 쓰임
-    if binary in ("npm", "pnpm", "yarn", "bun") and subcmd == "run":
+SCRIPT_TARGETS_VIA_RUN = {"npm", "pnpm", "yarn", "bun"}
+```
+
+**판정 로직** (순서 중요):
+
+```python
+def check_script_manager(binary, tokens):
+    """Return (is_stale, reason) or None if not a script manager."""
+    if binary not in BUILTINS_MAP:
+        return None                                      # fall through
+
+    subcmd = tokens[1] if len(tokens) >= 2 else ""
+
+    # 1-a. built-in subcommand 먼저 체크 (BU-1 핵심 수정)
+    if subcmd in BUILTINS_MAP[binary]:
+        return (False, f"{binary} built-in: {subcmd}")
+
+    # 1-b. `npm run <script>` / `pnpm run <script>` 등 — user script 호출
+    if binary in SCRIPT_TARGETS_VIA_RUN and subcmd == "run":
         target = tokens[2] if len(tokens) >= 3 else ""
-    else:
+        if not target:
+            return (False, f"{binary} run with no target")
+        scripts = load_scripts_from_package_json()
+        if target in scripts:
+            return (False, f"{binary} run script found: {target}")
+        return (True, f"{binary} script '{target}' not in package.json")
+
+    # 1-c. `make <target>` — Makefile에서 찾기
+    if binary == "make":
         target = subcmd
+        if not target:
+            return (False, "make with no target")
+        targets = load_makefile_targets()
+        if target in targets:
+            return (False, f"make target found: {target}")
+        return (True, f"make target '{target}' not in Makefile")
 
-    if target == "":
-        return (False, "script manager without target")  # e.g., `npm install`
+    # 1-d. `uv run <script>` / `poetry run <script>` — pyproject 기반
+    if binary == "uv" and subcmd == "run":
+        target = tokens[2] if len(tokens) >= 3 else ""
+        # uv run은 임의 Python 커맨드도 허용 (`uv run python foo.py`, `uv run pytest`)
+        # 따라서 target이 시스템 명령(whitelist)이면 통과
+        if target in SYSTEM_COMMAND_WHITELIST:
+            return (False, f"uv run + system command: {target}")
+        scripts = load_uv_scripts()
+        if target in scripts:
+            return (False, f"uv run script found: {target}")
+        return (True, f"uv run script '{target}' not in pyproject")
 
-    scripts = load_scripts(SCRIPT_MANAGERS[binary])
-    if target in scripts:
-        return (False, f"found in {SCRIPT_MANAGERS[binary][0]}")
-    else:
-        return (True, f"{binary} target '{target}' not in {SCRIPT_MANAGERS[binary][0]}")
+    # 1-e. 알 수 없는 subcommand는 stale 후보 (사용자 스크립트로 해석 시도 실패)
+    return (True, f"{binary} subcommand '{subcmd}' is neither built-in nor a script")
 ```
 
 ### Step 2. 시스템 명령 whitelist 매칭
@@ -124,6 +184,34 @@ if config.enable_path_check:
 return (True, f"unknown command '{binary}'")
 ```
 
+### 통합 함수 (최종)
+
+```python
+def is_cli_stale(command: str, *, config) -> tuple[bool, str]:
+    tokens = command.strip().split()
+    if not tokens:
+        return (True, "empty command")
+    binary = tokens[0]
+
+    # Step 1: script manager
+    result = check_script_manager(binary, tokens)
+    if result is not None:
+        return result
+
+    # Step 2: system whitelist
+    if binary in SYSTEM_COMMAND_WHITELIST:
+        return (False, f"system command: {binary}")
+
+    # Step 3: optional PATH check
+    if config.enable_path_check:
+        import shutil
+        if shutil.which(binary):
+            return (False, f"found in $PATH: {binary}")
+
+    # Step 4: stale
+    return (True, f"unknown command '{binary}'")
+```
+
 ## 판정 예시 (Edge Case 매트릭스)
 
 | 입력 CLI | binary | Step 1 | Step 2 | 최종 | reason |
@@ -131,7 +219,13 @@ return (True, f"unknown command '{binary}'")
 | `git log -1 --format=%aI` | `git` | N/A | ✅ | non-stale | system command |
 | `npm run build` (scripts에 build 있음) | `npm` | ✅ non-stale | - | non-stale | found in scripts |
 | `npm run missing` (없음) | `npm` | ❌ stale | - | **stale** | NEW-CLI-BYPASS 해결 |
-| `npm install` | `npm` | non-stale (no target) | - | non-stale | no target |
+| `npm install` | `npm` | non-stale (built-in) | - | non-stale | npm built-in (BU-1 해결) |
+| `npm ci` | `npm` | non-stale (built-in) | - | non-stale | npm built-in |
+| `yarn install` | `yarn` | non-stale (built-in) | - | non-stale | yarn built-in |
+| `pnpm add foo` | `pnpm` | non-stale (built-in) | - | non-stale | pnpm built-in |
+| `uv sync` | `uv` | non-stale (built-in) | - | non-stale | uv built-in |
+| `uv run pytest` | `uv` | non-stale (run + system) | - | non-stale | uv run + whitelist |
+| `poetry install` | `poetry` | non-stale (built-in) | - | non-stale | poetry built-in |
 | `make test` (Makefile에 있음) | `make` | ✅ non-stale | - | non-stale | found in Makefile |
 | `make missing-target` | `make` | ❌ stale | - | **stale** | not in Makefile |
 | `pytest tests/` | `pytest` | N/A | ✅ | non-stale | system command |

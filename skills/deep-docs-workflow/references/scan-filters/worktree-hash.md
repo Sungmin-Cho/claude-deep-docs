@@ -32,47 +32,103 @@ fi
 
 non-git 환경이면 `"no-git"` 반환, 재사용 로직은 `scanned_at` TTL만 사용.
 
-### Step 2. NUL-safe 파일 열거 (NEW-RCE 대응)
+### Step 2. 안전한 직렬화 (NEW-RCE + BU-3 + BU-4 대응)
 
-**절대 금지**: `xargs -I{} sh -c '... {}'` — 파일명이 `sh -c`에 삽입되어 shell이 재파싱.
+**절대 금지**:
+- `xargs -I{} sh -c '... {}'` — 파일명이 `sh -c`에 삽입되어 shell이 재파싱 (NEW-RCE).
+- `tr '\0' '\n'` — 파일명에 newline 포함 시 두 파일처럼 변질 (BU-3).
+- `FILE:path\ncontent\nEOF\n` 같은 plain-text sentinel — 내용에 sentinel이 포함되면 서로 다른 worktree가 동일 스트림 생산 (BU-4 injection).
 
-**올바른 방법**: NUL delimiter + bash loop:
+**Python primary 구현 (BU-3, BU-4 해결)**:
 
+```python
+import hashlib
+import subprocess
+from pathlib import Path
+
+def compute_worktree_hash() -> str:
+    """
+    Unambiguous worktree fingerprint.
+    - tracked diff: git diff HEAD --binary
+    - untracked files: git hash-object per file, sorted
+    Returns hex sha1 digest.
+    """
+    h = hashlib.sha1()
+
+    # (A) tracked 변경 — git diff는 자체 구조가 unambiguous
+    tracked_diff = subprocess.run(
+        ["git", "diff", "HEAD", "--binary"],
+        capture_output=True, check=False,
+    ).stdout
+    # length-prefix diff
+    h.update(f"TRACKED_DIFF:{len(tracked_diff)}\n".encode())
+    h.update(tracked_diff)
+
+    # (B) untracked 파일 목록 — NUL-delimited 그대로 파싱
+    untracked_raw = subprocess.run(
+        ["git", "ls-files", "-z", "--others", "--exclude-standard"],
+        capture_output=True, check=False,
+    ).stdout
+    paths = [p for p in untracked_raw.split(b"\x00") if p]
+    paths.sort()
+
+    # (C) 각 파일의 per-file digest — ambiguity 원천 제거
+    h.update(f"UNTRACKED_COUNT:{len(paths)}\n".encode())
+    for path_bytes in paths:
+        path = Path(path_bytes.decode("utf-8", errors="surrogateescape"))
+        try:
+            with open(path, "rb") as f:
+                file_bytes = f.read()
+            # git hash-object 스타일: `blob <size>\0<content>`
+            obj_hash = hashlib.sha1(
+                f"blob {len(file_bytes)}\0".encode() + file_bytes
+            ).hexdigest()
+        except OSError:
+            obj_hash = "__MISSING__"
+        # record: length-prefixed path + its content digest
+        h.update(f"{len(path_bytes)}\0".encode())
+        h.update(path_bytes)
+        h.update(f"\0{obj_hash}\n".encode())
+
+    return h.hexdigest()
+```
+
+**안전 특성**:
+1. **NUL 보존 (BU-3)**: 파일 목록은 끝까지 NUL로 delimited 처리. 텍스트 변환 없음.
+2. **Unambiguous 직렬화 (BU-4)**: 각 record가 `<length>\0<path>\0<sha1>` 형태로 길이-접두사 + fixed-width hash. sentinel 문자열 injection 불가.
+3. **RCE-free (NEW-RCE)**: 파일명이 shell을 거치지 않음. Python `open()`에 bytes-path로 직접 전달.
+4. **Cross-platform**: Python `hashlib.sha1`은 macOS/Linux 동일. `shasum`/`sha1sum` 분기 불필요.
+5. **결정성**: `paths.sort()`로 순서 안정. 빈 untracked일 때도 `UNTRACKED_COUNT:0`가 hash에 포함됨 → 결정적.
+
+**참고: Bash 근사 (정확성 미보장)**:
 ```bash
-compute_worktree_hash() {
+# WARNING: Python이 primary. 이 Bash는 디버깅/간이 확인용.
+# ambiguity 완전 제거 못함 (newline in filename 경계 조건).
+compute_worktree_hash_approx() {
     {
-        # (A) tracked 변경
-        git diff HEAD --binary 2>/dev/null || true
+        printf 'TRACKED_DIFF:'
+        git diff HEAD --binary 2>/dev/null | wc -c
+        git diff HEAD --binary 2>/dev/null
 
-        # (B) untracked 파일 목록 (NUL-delimited)
-        git ls-files -z --others --exclude-standard | tr '\0' '\n' | sort
-
-        # (C) untracked 파일 내용 (NUL-safe loop)
-        while IFS= read -r -d '' f; do
-            [ -f "$f" ] || continue
-            # 파일 구분자 (path를 그대로 shell에 재해석 안 함)
-            printf 'FILE:%s\n' "$f"
-            # 내용 append — path는 cat의 argument로만 전달됨
-            cat -- "$f" 2>/dev/null || true
-            printf '\nEOF\n'
-        done < <(git ls-files -z --others --exclude-standard)
-
+        git ls-files -z --others --exclude-standard \
+          | sort -z \
+          | while IFS= read -r -d '' f; do
+              [ -f "$f" ] || continue
+              # git hash-object는 각 파일에 대해 unambiguous digest
+              printf '%s\0' "$f"
+              git hash-object -- "$f" 2>/dev/null || printf '__MISSING__'
+              printf '\n'
+            done
     } | shasum -a 1 | awk '{print $1}'
 }
 ```
-
-**보안 특성**:
-- 파일명은 `cat --` 뒤에 **argument로만** 전달됨. shell이 재파싱하지 않음.
-- `--` sentinel로 dash-prefix 파일명(`-rf`) 등 옵션 해석 방지.
-- NUL(`\0`) delimiter로 newline 포함 파일명도 안전.
+Bash 근사도 `git hash-object`로 per-file digest를 씀으로써 BU-4를 완화하지만, `sort -z`의 BSD/GNU 호환성 이슈가 남음.
 
 ### Step 3. 해시 정규화
 
-- `git diff --binary`: binary 파일도 base64 인코딩되어 diff에 포함됨 → 시간 독립적 해시 보장
-- shasum이 없는 환경(매우 드묾): `openssl dgst -sha1` fallback
-  ```bash
-  hash_cmd=$(command -v shasum || command -v sha1sum || echo "openssl dgst -sha1")
-  ```
+- Python primary에서는 `hashlib.sha1`로 통일 — 외부 도구 의존 없음.
+- `git diff --binary`: binary 파일도 base64 인코딩되어 diff에 포함됨 → 시간 독립적 해시 보장.
+- Bash 근사에서 `shasum -a 1` 우선, `sha1sum` **사용 금지** (macOS 호환 + 스펙 일관성, BW-1 대응). 둘 다 없으면 `openssl dgst -sha1` fallback.
 
 ## 재사용 규칙 연동
 

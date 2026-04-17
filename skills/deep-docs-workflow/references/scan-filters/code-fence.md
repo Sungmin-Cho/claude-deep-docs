@@ -103,44 +103,65 @@ def split_segments(lines: list[str]) -> tuple[list[Segment], list[FencedBlock]]:
 - tilde fence(`~~~`) 지원
 - closer가 opener와 **동일 들여쓰기**인 경우만 매칭
 
-## Bash-equivalent 구현 지침
+## 참고: Bash/awk 근사 구현 (정확성 미보장, BU-7 경고)
 
-bash 환경에서도 동일 semantics 유지:
+**WARNING**: Python 구현이 primary. 아래 awk는 **deep-review round 3 BU-7에서 들여쓰기 fence 처리 bug가 지적됨** — `RSTART=1, RLENGTH=N`에서 `substr($0, RSTART, RLENGTH)`가 들여쓰기 포함 전체 매치를 반환하여 `ch`가 공백이 됨. POSIX awk는 3-argument `match`를 지원 안 해 capture group 분리 불가.
 
-```bash
-# 간단한 state machine: in_fence 플래그 + awk/sed로 segment 추출
-awk '
-BEGIN { in_fence = 0; seg_start = 1 }
-{
-    # 들여쓰기 0~3 space + fence 마커
-    if (match($0, /^ {0,3}(`{3,}|~{3,})/)) {
-        indent = length(substr($0, 1, RSTART-1))
-        mark = substr($0, RSTART, RLENGTH)
-        ch = substr(mark, 1, 1)
-        count = length(mark)
-        rest = substr($0, RSTART + RLENGTH)
+**권장**: 실제 구현은 Python `re.match(r'^( {0,3})(\`{3,}|~{3,})(.*)$', line)`로 capture group 사용. Bash를 강제해야 하면 `[[ "$line" =~ ^([[:space:]]{0,3})(\`{3,}|~{3,})(.*)$ ]]`로 BASH_REMATCH 활용.
 
-        if (!in_fence) {
-            # opener
-            in_fence = 1
-            fence_ch = ch
-            fence_count = count
-            fence_indent = indent
-            print "FENCE_OPEN:" NR ":" indent ":" rest > "/dev/stderr"
-            next
-        } else if (ch == fence_ch && count >= fence_count && indent == fence_indent && rest ~ /^[[:space:]]*$/) {
-            # closer
-            in_fence = 0
-            print "FENCE_CLOSE:" NR > "/dev/stderr"
-            next
-        }
-    }
-    if (in_fence) next
-    # non-fence line → segment 포함
-    print NR ":" $0
-}
-' "$FILE"
+```python
+# Python primary 구현
+import re
+
+FENCE_RE = re.compile(r'^(?P<indent> {0,3})(?P<mark>`{3,}|~{3,})(?P<info>.*)$')
+
+def split_segments(lines: list[str]):
+    segments = []
+    fenced_blocks = []
+    current = []
+    seg_start = 1
+    in_fence = False
+    fence_ch = ""
+    fence_count = 0
+    fence_indent = 0
+
+    for i, line in enumerate(lines, start=1):
+        m = FENCE_RE.match(line)
+        if not in_fence:
+            if m:
+                if current:
+                    segments.append((seg_start, current))
+                    current = []
+                in_fence = True
+                mark = m.group("mark")
+                fence_ch = mark[0]
+                fence_count = len(mark)
+                fence_indent = len(m.group("indent"))
+                fenced_blocks.append({
+                    "start": i,
+                    "indent": fence_indent,
+                    "lang": m.group("info").strip(),
+                    "lines": [],
+                })
+            else:
+                current.append(line)
+        else:
+            if m and m.group("mark")[0] == fence_ch \
+                and len(m.group("mark")) >= fence_count \
+                and len(m.group("indent")) == fence_indent \
+                and m.group("info").strip() == "":
+                # closer
+                in_fence = False
+                fenced_blocks[-1]["end"] = i
+                seg_start = i + 1
+            else:
+                fenced_blocks[-1]["lines"].append(line)
+    if current:
+        segments.append((seg_start, current))
+    return segments, fenced_blocks
 ```
+
+Bash 근사 참고는 생략 (BU-7 버그 상주). 필요 시 Python을 `python3 -c` 로 호출.
 
 ## Edge Case 매트릭스
 

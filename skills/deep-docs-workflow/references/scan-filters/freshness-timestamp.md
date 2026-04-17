@@ -18,8 +18,8 @@
 
 ## 출력
 
-- `last_modified_epoch: int` — UNIX epoch seconds (정수)
-- 반환 없음 시 `None` (파일 존재 안 함)
+- `last_modified_epoch: int | None` — UNIX epoch seconds (정수) 또는 `None`
+- **파일이 존재하지 않거나 git에도 없음**: `None` 반환 (호출 측에서 `total_refs`에서도 제외, BU-5 대응)
 
 ## 알고리즘
 
@@ -64,53 +64,162 @@ fs_epoch_for_path() {
 
 모든 경로에서 **epoch seconds 정수** 반환. 타임존 문제 원천 제거.
 
-### Step 3. 최종 last_modified 계산
+### Step 3. Dirty 파일 집합 계산 (BU-6 대응)
+
+**문제**: `git clone`/`git checkout` 후 파일 mtime이 체크아웃 시각으로 설정되어 git time보다 항상 큼 → 단순 `max()`는 clean checkout에서도 mtime을 채택 → 모든 문서가 fresh로 오판.
+
+**해결**: mtime은 **dirty 파일에만** 적용. 깨끗한 파일은 git time 사용.
+
+```python
+import subprocess
+
+def get_dirty_files() -> set[str]:
+    """
+    파일이 'dirty'인 경우:
+    - tracked이지만 HEAD와 내용 다름 (modified)
+    - untracked (.gitignore 미제외)
+    """
+    modified = subprocess.run(
+        ["git", "diff", "HEAD", "--name-only"],
+        capture_output=True, text=True, check=False,
+    ).stdout.splitlines()
+
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        capture_output=True, text=True, check=False,
+    ).stdout.splitlines()
+
+    return set(modified) | set(untracked)
+```
+
+이 집합은 scan 세션 시작 시 한 번만 계산 (성능 + 일관성).
+
+### Step 4. 최종 last_modified 계산 (BU-5 + BU-6)
+
+```python
+def last_modified_epoch(path: str, dirty_files: set[str]) -> int | None:
+    """
+    Returns epoch seconds, or None if path exists in neither git nor filesystem.
+    """
+    git_ts = git_epoch_for_path(path)       # 0 if not in git
+    fs_ts  = fs_epoch_for_path(path)        # None if filesystem absent (BU-5)
+
+    # 존재하지 않는 파일 — None 반환, caller가 스킵 (BU-5 대응)
+    if git_ts == 0 and fs_ts is None:
+        return None
+
+    # dirty 파일만 mtime 고려 (BU-6 대응)
+    if path in dirty_files and fs_ts is not None:
+        # 워크트리에서 수정됐으므로 mtime이 최신 상태
+        return fs_ts if git_ts == 0 else max(git_ts, fs_ts)
+
+    # clean 파일 — git time이 정답 (checkout mtime 무시)
+    return git_ts if git_ts > 0 else fs_ts
+```
+
+### Step 5. git_epoch_for_path / fs_epoch_for_path (Python)
+
+```python
+def git_epoch_for_path(path: str) -> int:
+    """Returns 0 if not in git history."""
+    r = subprocess.run(
+        ["git", "log", "-1", "--format=%ct", "--", path],
+        capture_output=True, text=True, check=False,
+    )
+    out = r.stdout.strip()
+    return int(out) if out.isdigit() else 0
+
+def fs_epoch_for_path(path: str) -> int | None:
+    """Returns None if file does not exist on filesystem (BU-5)."""
+    try:
+        return int(Path(path).stat().st_mtime)
+    except FileNotFoundError:
+        return None
+```
+
+**참고: Bash 근사 (정확성 미보장)**:
 
 ```bash
+# WARNING: Python이 primary. Bash는 디버깅용.
+git_epoch_for_path() {
+    local p="$1"
+    local ts
+    ts="$(git log -1 --format=%ct -- "$p" 2>/dev/null)"
+    [ -z "$ts" ] && echo 0 || echo "$ts"
+}
+
+fs_epoch_for_path() {
+    local p="$1"
+    [ -e "$p" ] || { echo ""; return; }   # empty string = None 의미 (BU-5)
+    stat -f %m "$p" 2>/dev/null \
+      || stat -c %Y "$p" 2>/dev/null \
+      || date -r "$p" +%s 2>/dev/null \
+      || echo ""
+}
+
+# dirty 집합 (BU-6)
+get_dirty_files() {
+    { git diff HEAD --name-only 2>/dev/null
+      git ls-files --others --exclude-standard 2>/dev/null
+    } | sort -u
+}
+
 last_modified_epoch() {
     local p="$1"
     local git_ts fs_ts
     git_ts="$(git_epoch_for_path "$p")"
     fs_ts="$(fs_epoch_for_path "$p")"
 
-    # 숫자 비교 (NC-2 해결)
-    if [ "$fs_ts" -gt "$git_ts" ]; then
-        echo "$fs_ts"   # 워크트리에서 수정됐지만 미커밋인 케이스 반영
-    else
+    # BU-5: 둘 다 없으면 empty (None 의미)
+    if [ "$git_ts" = "0" ] && [ -z "$fs_ts" ]; then
+        echo ""; return
+    fi
+
+    # BU-6: dirty 파일만 mtime 고려
+    if grep -qxF "$p" <(get_dirty_files) && [ -n "$fs_ts" ]; then
+        if [ "$git_ts" = "0" ] || [ "$fs_ts" -gt "$git_ts" ]; then
+            echo "$fs_ts"; return
+        fi
+    fi
+    # clean file — git time
+    if [ "$git_ts" != "0" ]; then
         echo "$git_ts"
+    else
+        echo "$fs_ts"
     fi
 }
 ```
 
-- 파일시스템 mtime이 git commit time보다 미래 → 미커밋 수정 → mtime 채택 (H-6 해결).
-- 파일시스템 mtime이 더 오래됨(드문 경우: checkout만 하고 touch 안 했으면) → git time 채택.
-
 ## Stale 비율 계산 (doc-scanner.md Step 5)
 
-문서 `doc`에서 참조하는 경로 리스트 `refs`에 대해:
+문서 `doc`에서 참조하는 경로 리스트 `refs`에 대해 (BU-5 대응 강화):
 
 ```python
-doc_ts = last_modified_epoch(doc_path)
-stale_count = 0
-total_refs = 0
-for r in refs:
-    r_ts = last_modified_epoch(r.path)
-    if r_ts is None:
-        continue           # 경로 없음은 dead-reference에서 별도 처리
-    total_refs += 1
-    if r_ts > doc_ts:
-        stale_count += 1
-
-if total_refs == 0:
-    freshness_score = None           # 참조 없음
+dirty = get_dirty_files()       # 세션 캐시
+doc_ts = last_modified_epoch(doc_path, dirty)
+if doc_ts is None:
+    freshness_score = None      # 문서 자체 존재 안 함 — 평균에서 제외
 else:
-    ratio = stale_count / total_refs
-    if ratio >= 0.70:
-        freshness_score = 4
-    elif ratio >= 0.30:
-        freshness_score = 7
+    stale_count = 0
+    total_refs = 0
+    for r in refs:
+        r_ts = last_modified_epoch(r.path, dirty)
+        if r_ts is None:
+            continue              # 경로 없음 — dead-reference로 별도 처리, freshness 카운트 제외 (BU-5)
+        total_refs += 1
+        if r_ts > doc_ts:
+            stale_count += 1
+
+    if total_refs == 0:
+        freshness_score = None    # 참조 없음
     else:
-        freshness_score = 10
+        ratio = stale_count / total_refs
+        if ratio >= 0.70:
+            freshness_score = 4
+        elif ratio >= 0.30:
+            freshness_score = 7
+        else:
+            freshness_score = 10
 ```
 
 ## Edge Case 매트릭스

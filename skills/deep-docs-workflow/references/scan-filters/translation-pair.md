@@ -28,16 +28,23 @@
 
 ```
 LOCALE_ALLOWLIST = {
-    # ISO 639-1 (2자)
+    # ISO 639-1 (2자) — 동·서유럽
     "ko", "ja", "zh", "en", "fr", "de", "es", "pt", "it", "nl",
     "ru", "uk", "pl", "tr", "vi", "th", "ar", "hi", "fa", "he",
     "id", "ms", "cs", "sv", "da", "fi", "no", "el", "bg", "ro",
     "hu", "sk", "sl", "hr", "sr", "lt", "lv", "et", "is", "ga",
-    # 기타 관행
+    # 남아시아·아프리카 (BW-4 대응)
+    "bn", "ta", "te", "mr", "ur", "ne", "si", "sw", "af", "ca",
+    # 비표준 관행 (BW-5) — 엄격한 BCP 47 준수는 아니지만 실운영에서 자주 쓰임
+    # IETF 권장: `zh-CN`, `zh-TW`, `ko_KR`
     "cn", "tw",    # zh 변종 별칭
-    "kr",          # 한국 관행 별칭
+    "kr",          # ko 변종 별칭
 }
 ```
+
+**표준성 주석 (BW-5)**:
+- `cn`/`tw`/`kr`은 ISO 639-1 공식 코드가 아님. 한국어는 `ko`, 한국 region은 `KR`, 중국어는 `zh`. 그러나 파일 명명 관행에서 자주 쓰이므로 포함.
+- 엄격한 다국어 프로젝트에서는 `{basename}.{language}-{region}.md` 형태 권장 (예: `README.zh-CN.md`).
 
 별도 `REGION` 세그먼트(`_KR`, `-CN` 등)는 2자 대문자(`[A-Z]{2}`) 허용. 예: `ko_KR`, `zh-CN`, `pt_BR`.
 
