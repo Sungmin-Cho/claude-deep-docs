@@ -82,17 +82,59 @@ scan 결과를 기반으로 자동 수정합니다.
    - 크기 초과 (제안만)
 
 3. 각 항목을 순서대로 처리:
-   
+
    a. 수정 내용을 diff로 보여줌:
    ```
-   ## 수정 1/N: CLAUDE.md — 죽은 참조
+   ## 수정 1/N: {파일} — {한국어 type 레이블}
    
-   - `src/auth/middleware.ts` → `src/auth/auth-middleware.ts` (git rename 감지)
-   
-   이 수정을 적용할까요?
+   - `{current_value}` → `{suggested_value}` ({evidence})
    ```
    
-   b. AskUserQuestion으로 사용자 확인 후 Edit tool로 수정
+   b. AskUserQuestion으로 5지선다:
+   - **(A) 적용**
+   - **(B) 건너뜀 (이번만)**
+   - **(C) 건너뜀 + 기록** (`.deep-docs/garden-ignored.json`에 signature 저장)
+   - **(D) 이하 모두 적용 — "{한국어 레이블}" 일괄 수락** (현재 세션 + 동일 type)
+   - **(E) 이하 모두 건너뜀 — "{한국어 레이블}" 일괄 거부** (현재 세션 + 동일 type)
+   
+   c. A/D 선택 → Edit tool로 수정 적용  
+      C 선택 → `.deep-docs/garden-ignored.json` append + skip  
+      B/E 선택 → skip
+   
+   **세션 정의**: 단일 `/deep-docs garden` 호출 (시작 ~ 종료) 내에서만 (D)/(E) 선택 유지. 호출 종료 시 in-memory state 소실 (단, C만 영구 기록).
+
+   **세션 state 로직**:
+   ```python
+   # garden 진입 시 초기화
+   session_batch_accept: set[str] = set()   # (D)로 수락된 type 집합
+   session_batch_reject: set[str] = set()   # (E)로 거부된 type 집합
+
+   for issue in auto_fix_items:
+       # ignored 이력 체크 (영구 기록)
+       if signature(issue) in garden_ignored_json.ignored:
+           continue
+
+       t = issue.type
+       if t in session_batch_accept:
+           apply_edit(issue); continue
+       if t in session_batch_reject:
+           continue
+
+       choice = ask_user_question(5_options)
+       if choice == "A":
+           apply_edit(issue)
+       elif choice == "B":
+           pass
+       elif choice == "C":
+           append_to_garden_ignored(issue)
+       elif choice == "D":
+           session_batch_accept.add(t)
+           apply_edit(issue)
+       elif choice == "E":
+           session_batch_reject.add(t)
+   ```
+
+   **플랫폼 제약**: `AskUserQuestion`이 5 옵션 미지원이면 fallback — (A)/(B)/(C)/(Batch) 4지선다로 축소 후 Batch 선택 시 별도 질문으로 (D)/(E) 구분.
 
 4. audit-only 항목은 마지막에 참고로 표시:
    ```
@@ -112,6 +154,29 @@ scan 결과를 기반으로 자동 수정합니다.
 6. **아티팩트 무효화** (리뷰 H-2 대응):
    - 1건 이상 수정 적용 시 `.deep-docs/last-scan.json` 삭제
    - 다음 audit/garden은 반드시 재-scan
+
+### .deep-docs/garden-ignored.json 스키마 (M-8)
+
+```json
+{
+  "schema_version": 1,
+  "ignored": [
+    {
+      "signature": "sha256:...",
+      "type": "dead-reference",
+      "path": "CLAUDE.md",
+      "content_preview": "src/auth/middleware.ts",
+      "ignored_at": "2026-04-17T10:05:00Z"
+    }
+  ]
+}
+```
+
+- **signature**: `sha256(type + "|" + path + "|" + content_preview[:200])`
+- garden 실행 시 각 auto-fix 항목의 signature 계산 → `ignored`에 있으면 prompt skip
+- 사용자가 재검토 원하면 `.deep-docs/garden-ignored.json` 수동 삭제
+
+**⚠️ Signature 알고리즘 변경 시 주의**: 위 signature 공식 변경 시 기존 기록과 비호환. 변경 시 `garden-ignored.json`의 `schema_version`을 bump하고, garden 진입 시 version 불일치 감지 → 사용자에게 "기록 리셋됨" 안내 후 파일 삭제/백업 로직 필요.
 
 ### /deep-docs audit
 

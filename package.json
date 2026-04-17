@@ -1,5 +1,6 @@
 {
   "name": "deep-docs",
+  "private": true,
   "version": "1.0.0",
   "description": "Document gardening agent — validates freshness and auto-repairs CLAUDE.md, AGENTS.md, and project docs",
   "author": {

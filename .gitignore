@@ -1,0 +1,9 @@
+# Deep Docs scan artifacts (regenerated per scan)
+.deep-docs/
+
+# Editor/OS artifacts
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/

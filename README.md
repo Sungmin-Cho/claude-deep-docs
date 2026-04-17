@@ -153,9 +153,19 @@ In non-git environments, only the 10-minute TTL applies.
 
 ## Installation
 
+### From Claude Code Marketplace
+
 ```bash
 claude plugin add deep-docs
 ```
+
+### From Git URL (development / pre-release)
+
+```bash
+claude plugin add https://github.com/Sungmin-Cho/claude-deep-docs.git
+```
+
+After install, run `/deep-docs` in any project directory. The plugin auto-creates `.deep-docs/` on first use.
 
 ## License
 

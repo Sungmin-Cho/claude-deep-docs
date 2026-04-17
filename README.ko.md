@@ -153,9 +153,19 @@ git을 사용하지 않는 환경에서는 10분 TTL만 적용됩니다.
 
 ## 설치
 
+### Claude Code Marketplace에서
+
 ```bash
 claude plugin add deep-docs
 ```
+
+### Git URL에서 (개발 / 사전 공개)
+
+```bash
+claude plugin add https://github.com/Sungmin-Cho/claude-deep-docs.git
+```
+
+설치 후 프로젝트 디렉토리에서 `/deep-docs`를 실행하세요. 최초 사용 시 `.deep-docs/`가 자동 생성됩니다.
 
 ## 라이선스
 
