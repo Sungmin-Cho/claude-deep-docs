@@ -108,6 +108,10 @@ def last_modified_epoch(path: str, dirty_files: set[str]) -> int | None:
     if git_ts == 0 and fs_ts is None:
         return None
 
+    # worktree-deleted (git에 있었지만 현재 삭제) — None 취급 (N-5 대응)
+    if path in dirty_files and fs_ts is None:
+        return None
+
     # dirty 파일만 mtime 고려 (BU-6 대응)
     if path in dirty_files and fs_ts is not None:
         # 워크트리에서 수정됐으므로 mtime이 최신 상태

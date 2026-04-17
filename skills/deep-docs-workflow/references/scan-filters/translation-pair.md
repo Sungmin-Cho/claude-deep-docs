@@ -71,8 +71,15 @@ def group_key(path: str) -> tuple[str, str | None]:
     parts = stem.rsplit(".", 1)               # ["README", "ko"] 또는 ["README"]
     if len(parts) == 2:
         base, maybe_locale = parts
-        # region 분리: "ko_KR" or "zh-CN"
-        locale_match = re.match(r"^([a-z]{2})([_-][A-Z]{2})?$", maybe_locale)
+        # region/script 분리 (N-6 대응):
+        #   language (2-3 글자) + 선택적 script subtag (4글자 title case, zh-Hant 등)
+        #   + 선택적 region subtag (2글자 대문자, -KR / _KR)
+        locale_match = re.match(
+            r"^([a-z]{2,3})"              # language
+            r"(-[A-Z][a-z]{3})?"          # script (optional): -Hant, -Hans, -Cyrl
+            r"([_-][A-Z]{2})?$",          # region (optional): _KR, -CN
+            maybe_locale
+        )
         if locale_match and locale_match.group(1) in LOCALE_ALLOWLIST:
             return (os.path.join(dir_, base), maybe_locale)
     # locale 미검출 → base 파일 (locale is None)
@@ -106,7 +113,9 @@ else:
     issue.category = "auto-fix"
 ```
 
-## Bash-equivalent 구현 지침
+## 참고: Bash 근사 (정확성 미보장)
+
+**WARNING**: Python 구현이 primary. 아래 Bash는 `BASH_REMATCH` 사용 — `bash 4.0+` 전용, `/bin/sh`(dash)에서 작동 안 함. 또한 정규식 문법이 Python과 미묘하게 다를 수 있음. 실 구현은 Python 사용.
 
 Claude Code subagent는 bash 기반. Python 직접 호출이 불가할 수 있으므로 awk 또는 bash parameter expansion으로 동일 동작 구현:
 

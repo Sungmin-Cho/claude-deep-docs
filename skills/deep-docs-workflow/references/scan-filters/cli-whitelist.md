@@ -40,27 +40,50 @@ binary가 script manager면 먼저 **built-in 서브커맨드 allowlist** 체크
 
 ```python
 NPM_BUILTINS = {
-    "install", "i", "ci", "test", "t", "publish", "audit", "init",
-    "create", "login", "logout", "whoami", "adduser", "token",
-    "version", "update", "up", "outdated", "dedupe", "prune",
-    "exec", "x", "start", "stop", "restart", "pack", "unpublish",
-    "uninstall", "un", "remove", "rm", "rb", "add", "a",
-    "link", "ln", "unlink", "cache", "config", "doctor",
-    "help", "search", "s", "se", "view", "info", "show",
+    # 설치/의존성
+    "install", "i", "ci", "uninstall", "un", "remove", "rm", "rb",
+    "add", "a", "update", "up", "outdated", "dedupe", "prune",
+    "link", "ln", "unlink",
+    # 실행/라이프사이클
+    "test", "t", "start", "stop", "restart", "exec", "x", "pack",
+    "publish", "unpublish", "version",
+    # 레지스트리/인증
+    "login", "logout", "whoami", "adduser", "token",
+    "search", "s", "se", "view", "info", "show",
+    # 조회 — BU-1 파생 N-1 대응 추가
+    "ls", "list", "ll", "la", "fund", "explain", "why",
+    "diff", "dist-tag", "ping", "bugs", "docs", "home",
+    "edit", "owner", "repo", "root", "prefix", "bin",
+    "completion", "help-search", "help",
+    # 관리
+    "init", "create", "cache", "config", "c", "get", "set", "doctor",
     "team", "org", "profile", "hook", "access", "deprecate",
+    "audit", "shrinkwrap", "rebuild",
 }
-PNPM_BUILTINS = NPM_BUILTINS | {"dlx", "store", "env", "import", "fetch", "patch"}
-YARN_BUILTINS = NPM_BUILTINS | {"workspaces", "workspace", "why", "dlx"}
-BUN_BUILTINS = NPM_BUILTINS | {"dlx", "upgrade", "pm", "create"}
+PNPM_BUILTINS = NPM_BUILTINS | {
+    "dlx", "store", "env", "import", "fetch", "patch", "patch-commit",
+    "deploy", "licenses", "setup", "recursive", "m", "multi",
+}
+YARN_BUILTINS = NPM_BUILTINS | {
+    "workspaces", "workspace", "dlx", "policies", "upgrade", "upgrade-interactive",
+    "autoclean", "check", "generate-lock-entry", "global",
+}
+BUN_BUILTINS = NPM_BUILTINS | {
+    "dlx", "upgrade", "pm", "run", "create", "build", "x", "add",
+}
+# NOTE (N-2 대응): uv/poetry는 "run"을 built-in에 두지 않음 — Step 1-d granular lookup이 동작하도록.
 UV_BUILTINS = {
-    "sync", "add", "remove", "lock", "run", "tool", "python",
+    "sync", "add", "remove", "lock", "tool", "python",
     "pip", "venv", "tree", "export", "init", "build", "publish",
     "cache", "self", "version", "help",
+    # "run" 제외 — Step 1-d(uv run <script>)에서 처리
 }
 POETRY_BUILTINS = {
-    "install", "add", "remove", "update", "lock", "run", "shell",
+    "install", "add", "remove", "update", "lock", "shell",
     "build", "publish", "init", "new", "version", "env", "config",
     "cache", "search", "show", "check", "about", "self", "source",
+    "export", "sync",
+    # "run" 제외 — Step 1-d에서 처리
 }
 MAKE_BUILTINS: set = set()   # make는 built-in subcommand 없음 (모두 target)
 JUST_BUILTINS = {"--list", "--help", "--version", "--init"}
@@ -72,7 +95,12 @@ BUILTINS_MAP = {
     "make": MAKE_BUILTINS, "just": JUST_BUILTINS,
 }
 
-SCRIPT_TARGETS_VIA_RUN = {"npm", "pnpm", "yarn", "bun"}
+SCRIPT_TARGETS_VIA_RUN = {"npm", "pnpm", "yarn", "bun", "uv", "poetry"}
+
+# 사용자가 `npm foo`처럼 알 수 없는 subcommand를 쓴 경우의 처리 정책
+# - True: stale로 flag (aggressive)
+# - False: audit-only로 격하 (conservative, 권장)
+UNKNOWN_SUBCOMMAND_IS_STALE = False
 ```
 
 **판정 로직** (순서 중요):
@@ -110,20 +138,28 @@ def check_script_manager(binary, tokens):
         return (True, f"make target '{target}' not in Makefile")
 
     # 1-d. `uv run <script>` / `poetry run <script>` — pyproject 기반
-    if binary == "uv" and subcmd == "run":
+    if binary in ("uv", "poetry") and subcmd == "run":
         target = tokens[2] if len(tokens) >= 3 else ""
-        # uv run은 임의 Python 커맨드도 허용 (`uv run python foo.py`, `uv run pytest`)
-        # 따라서 target이 시스템 명령(whitelist)이면 통과
+        if not target:
+            return (False, f"{binary} run with no target")
+        # uv/poetry run은 임의 Python 커맨드도 허용 (`uv run python foo.py`, `uv run pytest`)
         if target in SYSTEM_COMMAND_WHITELIST:
-            return (False, f"uv run + system command: {target}")
-        scripts = load_uv_scripts()
+            return (False, f"{binary} run + system command: {target}")
+        scripts = (load_uv_scripts() if binary == "uv" else load_poetry_scripts())
         if target in scripts:
-            return (False, f"uv run script found: {target}")
-        return (True, f"uv run script '{target}' not in pyproject")
+            return (False, f"{binary} run script found: {target}")
+        return (True, f"{binary} run script '{target}' not in pyproject")
 
-    # 1-e. 알 수 없는 subcommand는 stale 후보 (사용자 스크립트로 해석 시도 실패)
-    return (True, f"{binary} subcommand '{subcmd}' is neither built-in nor a script")
+    # 1-e. 알 수 없는 subcommand — 정책에 따라 stale 또는 audit-only (N-1 완화)
+    reason = f"{binary} subcommand '{subcmd}' is neither built-in nor a script"
+    if UNKNOWN_SUBCOMMAND_IS_STALE:
+        return (True, reason)
+    else:
+        # 보수적 기본값: stale로 판정하지 않고 audit-only로 기록
+        return (False, f"{reason} (audit-only)")
 ```
+
+**N-1 대응 추가 정책**: `UNKNOWN_SUBCOMMAND_IS_STALE`을 `False`로 기본 설정. 새로운 npm subcommand가 추가돼도 (예: 향후 `npm next-thing`) 즉시 stale로 flag되지 않음. audit-only 분류로 기록되어 사용자가 리뷰 시점에 판단. BUILTINS 업데이트는 점진적으로 가능.
 
 ### Step 2. 시스템 명령 whitelist 매칭
 
@@ -232,7 +268,9 @@ def is_cli_stale(command: str, *, config) -> tuple[bool, str]:
 | `foo --bar` (unknown) | `foo` | N/A | ❌ | stale | unknown command |
 | `python manage.py runserver` | `python` | N/A | ✅ | non-stale | system (인자 `manage.py`는 reference-extraction에서 path로 별도 처리) |
 
-## Bash-equivalent 구현 지침
+## 참고: Bash 근사 (정확성 미보장)
+
+**WARNING**: Python 구현이 primary. 아래 Bash 코드는 디버깅용 예시이며, round 3에서 `npm run <target>` 파싱 버그(BU-8) 지적됨. 실제 구현에서 이 섹션을 그대로 쓰지 말고 Python을 `python3 -c`로 호출할 것.
 
 ```bash
 # package.json scripts 로드

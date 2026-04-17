@@ -76,20 +76,34 @@ def compute_worktree_hash() -> str:
     h.update(f"UNTRACKED_COUNT:{len(paths)}\n".encode())
     for path_bytes in paths:
         path = Path(path_bytes.decode("utf-8", errors="surrogateescape"))
-        try:
-            with open(path, "rb") as f:
-                file_bytes = f.read()
-            # git hash-object 스타일: `blob <size>\0<content>`
-            obj_hash = hashlib.sha1(
-                f"blob {len(file_bytes)}\0".encode() + file_bytes
-            ).hexdigest()
-        except OSError:
-            obj_hash = "__MISSING__"
+        obj_hash = _file_digest_streaming(path)       # N-3 대응: stream
         # record: length-prefixed path + its content digest
         h.update(f"{len(path_bytes)}\0".encode())
         h.update(path_bytes)
         h.update(f"\0{obj_hash}\n".encode())
 
+    return h.hexdigest()
+
+
+def _file_digest_streaming(path: Path) -> str:
+    """
+    Stream a file through sha1 in 64KB chunks (N-3 대응).
+    Avoids loading large files (video, binaries) fully into memory.
+    Returns git-style blob digest or '__MISSING__'.
+    """
+    import os
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return "__MISSING__"
+    h = hashlib.sha1()
+    h.update(f"blob {size}\0".encode())
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+    except OSError:
+        return "__MISSING__"
     return h.hexdigest()
 ```
 
@@ -173,7 +187,8 @@ def can_reuse_scan(artifact, now):
 
 1. **symlink loop**: `cat`이 symlink를 따라가다 loop 걸리면 hang. 완화: `find -L` 대신 직접 `cat`만 — `cat`은 symlink를 한 번만 따라감, loop 시 파일로 인식 못하고 skip 가능.
 2. **거대 untracked 디렉토리**: 수GB의 미커밋 빌드 산출물이 있으면 해시 계산 오래 걸림. 완화: `.gitignore` 지시. 사용자 책임.
-3. **LFS 파일**: `git diff --binary`는 LFS pointer만 포함. 실제 large file 내용은 해시에 반영 안 됨. minor — LFS 파일 변경은 HEAD sha 비교로 감지됨.
+3. **거대 untracked 파일 메모리** (N-3 대응): 500MB+ 개별 파일도 `_file_digest_streaming()`이 64KB chunk로 해시 → 메모리 사용량 O(1). 무한 파일 크기 대응.
+4. **LFS 파일**: `git diff --binary`는 LFS pointer만 포함. 실제 large file 내용은 해시에 반영 안 됨. minor — LFS 파일 변경은 HEAD sha 비교로 감지됨.
 
 ## Bash 실행 가능성 확인
 

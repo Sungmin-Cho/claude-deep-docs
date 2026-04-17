@@ -135,7 +135,9 @@ inline backtick 내부가 다음과 일치:
 - `[a-z][a-zA-Z0-9_]*\(\)` (함수 호출 후보, 괄호 포함)
 - `kind: "symbol"`
 
-## Bash-equivalent 구현 지침
+## 참고: Bash 근사 (정확성 미보장)
+
+**WARNING**: Python 구현이 primary. 아래는 간이 참고용이며 Rule 0 ordering(CLI 먼저)을 완전히 복제 못할 수 있음. 실 구현은 Python 사용.
 
 grep + awk로 순차 처리:
 
