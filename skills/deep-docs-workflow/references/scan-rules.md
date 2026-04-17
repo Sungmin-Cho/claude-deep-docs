@@ -17,6 +17,23 @@
 
 ---
 
+## 규칙 번호 ↔ doc-scanner Step 매핑
+
+| 규칙 | doc-scanner.md Step |
+|------|---------------------|
+| Rule 1 (Dead References) | Step 2 (참조 추출) + Step 3 (참조 검증) |
+| Rule 2 (Moved/Renamed Paths) | Step 4 (이동 추적) |
+| Rule 3 (Stale Examples) | Step 3 (CLI 판정 — `scan-filters/cli-whitelist.md`) |
+| Rule 4 (Duplicated Instructions) | Step 6 (중복 탐지) |
+| Rule 5 (Size/Organization) | Step 7 (크기 검사) |
+| Rule 6 (Rule-Code Contradiction) — audit-only | Step 8 |
+| Rule 7 (Coverage Gap) — audit-only | Step 9 |
+| Rule 8 (Map vs Manual) — audit-only | Step 10 |
+
+구현자 참고: Rule은 분류 기준, Step은 실행 순서. 두 번호 체계는 동일 작업을 다른 관점에서 참조.
+
+---
+
 ## Auto-fix 가능 (garden에서 자동 수정)
 
 ### 1. 죽은 참조 (Dead References)
