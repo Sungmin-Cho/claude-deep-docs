@@ -50,7 +50,7 @@ The scanner classifies every finding into one of two categories:
 | Moved/Renamed Paths | References that don't exist but have a `git log --follow` rename history | Update to new path automatically |
 | Stale Examples | CLI commands or env variables in docs that don't match `package.json` scripts or `.env.example` | Conditional auto-fix when exact replacement is known; code examples are audit-only |
 | Duplicated Instructions | Identical blocks (3+ lines, 100% match) repeated across multiple docs | Remove duplicates; near-duplicates are audit-only |
-| Size/Organization | CLAUDE.md or AGENTS.md exceeding 200 lines | Suggest splitting (proposal only, not automatic) |
+| Size/Organization | CLAUDE.md/AGENTS.md >100, README.md >300, other docs/ >200 | Suggest splitting (proposal only, not automatic) |
 
 ### Audit-only (reported but not auto-fixed)
 
@@ -96,12 +96,12 @@ Freshness is path-scoped: it checks the referenced files in each doc rather than
 
 | Score | Band |
 |-------|------|
-| 9–10 | Excellent |
-| 7–8 | Good |
-| 5–6 | Fair (gardening recommended) |
-| 1–4 | Poor (immediate attention needed) |
+| `≥ 9.0` | Excellent |
+| `7.0 ≤ score < 9.0` | Good |
+| `5.0 ≤ score < 7.0` | Fair (gardening recommended) |
+| `< 5.0` | Poor (immediate attention needed) |
 
-The overall score is the average of all measurable dimensions. If a doc has no outbound references (freshness cannot be measured), that dimension is excluded and the remaining dimensions are averaged instead.
+The overall score is rounded to 1 decimal (e.g., `8.5`). If a doc has no outbound references (freshness cannot be measured), that dimension is excluded and the remaining dimensions are averaged instead.
 
 ## Configuration
 

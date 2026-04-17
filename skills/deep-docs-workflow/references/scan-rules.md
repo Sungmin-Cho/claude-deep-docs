@@ -72,9 +72,9 @@
 
 ### 5. 크기/구성 (Size/Organization)
 
-파일이 과도하게 큰 경우 (200줄 이상의 CLAUDE.md).
+파일이 과도하게 큰 경우 (CLAUDE.md/AGENTS.md는 100줄, README.md는 300줄, 기타 docs/는 200줄 초과).
 
-탐지: 라인 수 체크
+탐지: strict `>` 부등호 — `CLAUDE.md/AGENTS.md > 100`, `README.md > 300`, `기타 docs/ > 200` (audit-metrics.md §1과 경계 일치)
 수정: 분리 제안 (자동 분리는 아님, 제안만).
 
 ---
