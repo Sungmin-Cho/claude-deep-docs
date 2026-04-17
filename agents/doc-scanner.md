@@ -48,12 +48,16 @@ Glob으로 대상 문서 탐색 (다음 디렉토리는 제외: node_modules/, v
 
 ### 2. 참조 추출
 
-각 문서에서 코드 참조를 추출:
-- backtick 내 파일 경로: `src/auth/middleware.ts`
-- 마크다운 링크의 경로: `[text](path/to/file)`
-- 코드블록 내 import문: `import { foo } from './bar'`
-- 코드블록 내 CLI 명령어: `npm run build`, `python manage.py`
-- 함수/클래스 이름: `MyComponent`, `handleAuth()`
+`scan-filters/reference-extraction.md` 필터의 Rule 0~7을 실행. 요약:
+
+1. `code-fence.md`로 문서를 segment 배열로 분할 (fenced block 제외)
+2. 각 non-fenced segment의 inline backtick 내용에 대해:
+   - 첫 토큰이 CLI binary면 → `kind: "cli"` (공백 허용)
+   - 공백 없는 single token이면 path/env/symbol 분기
+3. Markdown link `[text](path)`의 path도 `kind: "path"`로 추출
+4. Indented code block(4+ space)은 제외
+
+**중요**: fenced code block 내부의 `import` 문·예시 경로는 **추출 대상 아님**. 코드블록은 의도된 예시이므로 dead-reference 판정 안 함.
 
 ### 3. 참조 검증
 
@@ -87,17 +91,24 @@ rename 이력이 있으면 새 경로를 기록.
 
 ### 6. 중복 탐지
 
-문서 간 유사 블록 탐지:
-- 각 문서를 3줄 단위 sliding window로 분할
-- 블록 해시로 다른 문서와 비교
-- 3줄 이상 연속 일치하면 중복으로 기록
+`scan-filters/code-fence.md`와 `scan-filters/translation-pair.md` 필터 조합:
+
+1. `code-fence.md`로 각 문서를 non-fenced segment 리스트로 분할
+2. 3-line sliding window 해시를 **각 segment 내부에서만** 계산 (segment 경계 교차 매칭 금지 — prose concatenation false-positive 방지)
+3. cross-document 3-line 일치 발견 시, `translation-pair.md`의 그룹 맵 조회:
+   - 양 문서가 동일 그룹 → **audit-only** (번역 쌍의 의도된 동일 내용)
+   - 다른 그룹 또는 그룹 외 → **auto-fix** (중복 제거 제안)
+
+**그룹 키 계산**: 디렉토리 경로 포함. `docs/api/README.md`와 `docs/setup/README.ko.md`는 **다른 그룹** (같은 basename이지만 다른 dir).
 
 ### 7. 크기 검사 (Size Check)
 
-각 문서의 라인 수를 측정:
-- CLAUDE.md, AGENTS.md: 200줄 이상이면 경고
-- 기타 docs/: 400줄 이상이면 경고
-분류: auto-fix (제안만)
+각 문서의 라인 수를 측정 (strict `>` 부등호 — 경계값에서 경고+만점 충돌 방지, 리뷰 CX-2 대응):
+- CLAUDE.md, AGENTS.md: `>100`이면 경고 (분리 제안)
+- README.md: `>300`이면 경고
+- 기타 docs/: `>200`이면 경고
+
+분류: auto-fix (제안만, 자동 분리 안 함)
 
 ### 8. 규칙-코드 모순 추론 (Audit-only)
 
