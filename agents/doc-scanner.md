@@ -195,7 +195,7 @@ rename 이력이 있으면 새 경로를 기록.
 }
 ```
 
-**issue 객체 필드** (schema_version: 2):
+**issue 객체 필드** (schema_version: 2) — 필드 rename: `current_value` / `suggested_value` (구: `reference` / `suggestion`):
 
 - `type`: 허용 enum `dead-reference | moved-path | stale-example | duplicate-block | size-warning`
 - `category`: `"auto-fix"` 또는 `"audit-only"`
