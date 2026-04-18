@@ -27,10 +27,13 @@ user-invocable: false
 
 ### garden 워크플로우
 
-1. `.deep-docs/last-scan.json` 확인:
-   - 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
-   - HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
-   - non-git 환경: scanned_at만으로 10분 TTL 판단
+1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙):
+   - `schema_version == 2` (불일치 시 재-scan)
+   - `scanned_at` 10분 이내
+   - `provenance.head_sha` 일치 (git 환경)
+   - `provenance.worktree_hash` 일치 (git 환경, `scan-filters/worktree-hash.md` 재계산)
+   - 하나라도 실패 → 재-scan
+   - non-git: scanned_at 10분 TTL만
 2. auto-fix 가능 항목만 추출
 3. 각 항목에 대해:
    a. 수정 내용을 diff 형태로 사용자에게 보여줌
@@ -39,13 +42,19 @@ user-invocable: false
    d. 거부 → 건너뜀
 4. audit-only 항목은 "참고: 다음 항목은 자동 수정 대상이 아닙니다"로 표시
 5. 수정 요약 출력
+6. **아티팩트 무효화** (H-2 대응):
+   - 1건 이상 수정 적용 시 `.deep-docs/last-scan.json` 삭제
+   - 다음 audit/garden은 반드시 재-scan
 
 ### audit 워크플로우
 
-1. `.deep-docs/last-scan.json` 확인:
-   - 존재하고 10분 이내 + HEAD SHA가 현재와 동일 → 재사용
-   - HEAD SHA가 다르거나 10분 초과 또는 없음 → 재scan
-   - non-git 환경: scanned_at만으로 10분 TTL 판단
+1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙):
+   - `schema_version == 2` (불일치 시 재-scan)
+   - `scanned_at` 10분 이내
+   - `provenance.head_sha` 일치 (git 환경)
+   - `provenance.worktree_hash` 일치 (git 환경, `scan-filters/worktree-hash.md` 재계산)
+   - 하나라도 실패 → 재-scan
+   - non-git: scanned_at 10분 TTL만
 2. audit-metrics.md의 지표 계산:
    - 파일 크기
    - 신선도 (path-scoped)

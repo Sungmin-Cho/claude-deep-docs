@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.1.0] - 2026-04-17
+
+### Breaking Changes
+- **`.deep-docs/last-scan.json` `schema_version` 1 → 2**. issue 필드 rename: `reference` → `current_value`, `suggestion` → `suggested_value`. v1.0 아티팩트는 자동 재생성(10분 TTL + schema 체크).
+- Audit 점수 표기 변경: 정수 구간(`9–10, 7–8, 5–6, 1–4`) → 소수점 1자리 + strict 부등호(`≥9.0, 7.0≤<9.0, 5.0≤<7.0, <5.0`).
+
+### Added
+- `skills/deep-docs-workflow/references/scan-filters/` 디렉토리 — Python primary heuristic 필터 6개:
+  - `translation-pair.md`: 번역 쌍 그룹핑 (ISO 639-1 allowlist + 디렉토리 경로 포함 그룹 키 + script subtag 지원)
+  - `code-fence.md`: CommonMark 0.31 fence 인식 (3 space 들여쓰기까지) + per-segment hashing
+  - `reference-extraction.md`: Rule 0 분기(CLI → path → env → symbol) — fenced block 내부 제외
+  - `cli-whitelist.md`: 2단계 lookup (project scripts → system whitelist) + 각 매니저 built-in 집합
+  - `worktree-hash.md`: NUL-safe + per-file `git hash-object` + streaming 64KB chunk
+  - `freshness-timestamp.md`: epoch 비교 + dirty-only mtime fallback
+- `.deep-docs/garden-ignored.json` 아티팩트 — garden 거부 항목 signature 기반 영구 skip
+- Garden 5지선다 prompt — batch approval/rejection
+- `scripts/verify-fixes.sh` — grep 기반 spec 준수 체크
+- `.gitignore` — `.deep-docs/` 제외
+
+### Changed
+- `doc-scanner` agent tools에 `Write` 추가 — artifact 저장 가능
+- `commands/deep-docs.md` allowed-tools: `Agent` → `Task` (Claude Code 표준)
+- Artifact 재사용 조건 3-요소 → 4-요소 (`schema_version` 추가)
+- Size 임계값 strict `>` 부등호로 scan 경고와 audit 만점 경계 정렬
+- Freshness 점수 스케일 `{10, 7, 4, null}` 정규화, stale 비율 구간 `<30% / 30-70% / ≥70%` 명시
+- issue `type` enum 허용값 확정 + 한국어 레이블 매핑
+
+### Removed
+- `hooks/hooks.json` — v1.1 시점 active hook 없음
+
+### Fixed
+- **Self-corruption bug (C-1)**: `README.md` ↔ `README.ko.md` 번역 쌍의 JSON 예시가 중복으로 오판되어 garden이 삭제 제안하던 이슈
+- **CLI false-positive (M-7)**: `git log -1`, `find`, `wc` 등 시스템 명령이 stale로 오판
+- **워크트리 변경 미감지 (H-1)**: HEAD SHA + TTL만으로는 uncommitted 변경 감지 못함 — `worktree_hash`로 해결
+- **Garden 후 stale audit (H-2)**: 수정 적용 후 재사용 아티팩트로 점수 계산하던 이슈
+- **macOS 비호환**: `sha1sum` → `shasum -a 1`, `stat -c` / `stat -f` fallback chain
+
+### Security
+- `worktree_hash` 계산에서 `xargs -I{} sh -c` 제거 — 악성 파일명(`$(…)`, backtick 포함) RCE 차단
+
 ## [1.0.0] - 2026-04-08
 
 ### Added

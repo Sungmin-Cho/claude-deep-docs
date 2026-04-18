@@ -1,5 +1,39 @@
 # Scan Rules — Auto-fix vs Audit-only
 
+## Heuristic 세부 — `scan-filters/` 디렉토리 참조
+
+각 규칙의 detailed algorithm은 독립 필터 파일로 분리됨 (v1.1.0 architectural split). 본 파일은 **auto-fix vs audit-only 분류 기준**만 기술하며, "어떻게 판별하는가"는 각 필터 참조.
+
+| 규칙 | 필터 파일 |
+|------|-----------|
+| 번역 쌍 탐지 | `scan-filters/translation-pair.md` |
+| 코드펜스 인식 + segment 분리 | `scan-filters/code-fence.md` |
+| 참조 추출 | `scan-filters/reference-extraction.md` |
+| CLI stale 판정 | `scan-filters/cli-whitelist.md` |
+| 워크트리 해시 (artifact 재사용) | `scan-filters/worktree-hash.md` |
+| Freshness 시각 비교 | `scan-filters/freshness-timestamp.md` |
+
+**구현 언어**: Python 3.8+ primary (각 필터 파일의 알고리즘 섹션). Bash 근사는 "참고: Bash 근사 (정확성 미보장)" 섹션에만 제시됨 — 실 구현은 Python.
+
+---
+
+## 규칙 번호 ↔ doc-scanner Step 매핑
+
+| 규칙 | doc-scanner.md Step |
+|------|---------------------|
+| Rule 1 (Dead References) | Step 2 (참조 추출) + Step 3 (참조 검증) |
+| Rule 2 (Moved/Renamed Paths) | Step 4 (이동 추적) |
+| Rule 3 (Stale Examples) | Step 3 (CLI 판정 — `scan-filters/cli-whitelist.md`) |
+| Rule 4 (Duplicated Instructions) | Step 6 (중복 탐지) |
+| Rule 5 (Size/Organization) | Step 7 (크기 검사) |
+| Rule 6 (Rule-Code Contradiction) — audit-only | Step 8 |
+| Rule 7 (Coverage Gap) — audit-only | Step 9 |
+| Rule 8 (Map vs Manual) — audit-only | Step 10 |
+
+구현자 참고: Rule은 분류 기준, Step은 실행 순서. 두 번호 체계는 동일 작업을 다른 관점에서 참조.
+
+---
+
 ## Auto-fix 가능 (garden에서 자동 수정)
 
 ### 1. 죽은 참조 (Dead References)
@@ -7,9 +41,11 @@
 문서에서 참조하는 파일/함수/클래스가 코드에 존재하지 않는 경우.
 
 탐지 방법:
-- 마크다운에서 코드 참조 추출: backtick 내 경로(`src/foo.ts`), 링크, 코드블록의 import문
-- 각 참조를 Glob/Grep으로 존재 확인
-- 함수/클래스 참조: Grep으로 정의 검색
+- **참조 추출**: `scan-filters/reference-extraction.md`의 Rule 0 순서를 따름
+  - fenced block 내부 참조는 **추출 대상 아님** (코드펜스 예시 보호)
+  - inline backtick 중 공백 있으면 CLI 분기, 없으면 path/env/symbol 분기
+- **각 참조 검증**: `path` kind는 Glob/Grep으로 존재 확인
+- **함수/클래스**: Grep으로 정의 검색
 
 수정: 현재 경로/이름으로 업데이트. 삭제된 경우 "[삭제됨]" 표시.
 
@@ -28,9 +64,12 @@
 문서의 코드 예시나 CLI 명령어가 실제 코드/스크립트와 불일치.
 
 탐지 방법:
-- 코드블록 내 함수 호출 추출 → 실제 함수 시그니처와 비교
-- CLI 명령어 추출 → package.json scripts, Makefile targets과 비교
-- 환경 변수 참조 → .env.example과 비교
+- **CLI 명령어 stale 판정**: `scan-filters/cli-whitelist.md` 필터에 위임
+  - Step 1: project lookup (npm run, make target 등)
+  - Step 2: system command whitelist
+  - Step 3: optional `$PATH` check (기본 OFF)
+  - Step 4: 남으면 stale 후보 (UNKNOWN_SUBCOMMAND_IS_STALE=False 기본 — audit-only)
+- **환경 변수 참조**: `.env.example`과 대조 (단순 존재 확인)
 
 수정: **조건부 auto-fix** — CLI 명령어와 환경 변수는 정확한 대체값이 있으면 auto-fix. 코드 예시는 audit-only (정확한 대체 생성이 어려움).
 
@@ -39,16 +78,20 @@
 여러 문서에 동일한 내용이 반복되는 경우.
 
 탐지 방법:
-- 문서 간 유사 블록 탐지 (3줄 이상 연속 일치)
-- 블록 해시로 빠르게 비교
+- **코드펜스 분리**: `scan-filters/code-fence.md` 필터가 segment 단위로 문서 분할
+  - 3 space 들여쓰기까지 fence 인식 (CommonMark 0.31)
+  - tilde fence(`~~~`) 지원
+- **3-line sliding window**: 각 segment **내부에서만** 해시 비교 (prose concatenation false-positive 방지)
+- **번역 쌍 제외**: `scan-filters/translation-pair.md` 그룹 맵으로 동일 가족 간 중복은 auto-fix 제외
+- **블록 해시**: Python `hashlib.sha1(line_triple)`로 동일성 판정 (100% 일치만 auto-fix, 유사는 audit-only)
 
 수정: **조건부 auto-fix** — 완전 동일한 블록(3줄 이상 100% 일치)만 auto-fix 대상. 유사하지만 다른 블록은 audit-only.
 
 ### 5. 크기/구성 (Size/Organization)
 
-파일이 과도하게 큰 경우 (200줄 이상의 CLAUDE.md).
+파일이 과도하게 큰 경우 (CLAUDE.md/AGENTS.md는 100줄, README.md는 300줄, 기타 docs/는 200줄 초과).
 
-탐지: 라인 수 체크
+탐지: strict `>` 부등호 — `CLAUDE.md/AGENTS.md > 100`, `README.md > 300`, `기타 docs/ > 200` (audit-metrics.md §1과 경계 일치)
 수정: 분리 제안 (자동 분리는 아님, 제안만).
 
 ---
