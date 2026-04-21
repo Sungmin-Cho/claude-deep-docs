@@ -1,6 +1,10 @@
 # Deep Docs scan artifacts (regenerated per scan)
 .deep-docs/
 
+# Author-local artifacts — must never reach the remote
+.deep-review/
+docs/
+
 # Editor/OS artifacts
 .DS_Store
 *.swp
