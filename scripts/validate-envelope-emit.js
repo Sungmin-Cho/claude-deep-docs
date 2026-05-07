@@ -167,8 +167,17 @@ function check(target) {
         }
       });
     }
-    if (!env.provenance.tool_versions || typeof env.provenance.tool_versions !== 'object') {
-      fail('envelope.provenance.tool_versions must be an object');
+    // tool_versions: must be a non-array object whose values are string|object (suite schema mirror).
+    // typeof [] === 'object' in JS, so Array.isArray() guard is required.
+    const tv = env.provenance.tool_versions;
+    if (!tv || typeof tv !== 'object' || Array.isArray(tv)) {
+      fail(`envelope.provenance.tool_versions must be a non-array object (got ${Array.isArray(tv) ? 'array' : typeof tv})`);
+    } else {
+      for (const [k, v] of Object.entries(tv)) {
+        if (typeof v === 'string') continue;
+        if (v !== null && typeof v === 'object' && !Array.isArray(v)) continue;
+        fail(`envelope.provenance.tool_versions.${k} must be string or non-array object (got ${Array.isArray(v) ? 'array' : (v === null ? 'null' : typeof v)})`);
+      }
     }
   }
 

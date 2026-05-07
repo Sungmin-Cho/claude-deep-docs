@@ -171,7 +171,9 @@ def can_reuse_scan(artifact, now):
     # 4. payload.provenance.worktree_hash ↔ 재계산
     if prov["worktree_hash"] != compute_worktree_hash():
         return False
-    if prov.get("path_check_enabled") != config.enable_path_check:
+    # path_check_enabled 는 cli-whitelist 의 $PATH 체크가 ON 인 경우에만 emit 됨 (cli-whitelist.md §Provenance).
+    # 기본값 (OFF) 일 때 emit 에 없으므로 absent → False 로 default 해야 config OFF 와 정상 매칭.
+    if prov.get("path_check_enabled", False) != bool(config.enable_path_check):
         return False   # 환경 설정 변경도 무효화
     return True
 ```
