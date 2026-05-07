@@ -15,7 +15,11 @@
 - non-git 환경 sentinel: `envelope.git = { "head": "0000000", "branch": "HEAD", "dirty": "unknown" }`
 
 ### Migration notes
-- 본 릴리스는 plugin-internal **breaking change** (artifact JSON shape). 외부 consumer (deep-dashboard) 가 옛 root-level 필드를 읽고 있다면 envelope-aware 로 마이그레이션 필요. 10분 TTL 보유 자연 invalidation 으로 사용자 측 도구 불필요.
+- 본 릴리스는 plugin-internal **breaking change** (artifact JSON shape). 외부 consumer 가 옛 root-level 필드를 읽고 있다면 envelope-aware 로 마이그레이션 필요. 10분 TTL 보유 자연 invalidation 으로 사용자 측 도구 불필요.
+- 알려진 cross-plugin consumer (각각 자기 Phase 2 PR 에서 envelope-aware read 로 갱신):
+  - `deep-dashboard` collector — `harnessability-report.json` 생성 시 deep-docs `last-scan.json` 입력 (Phase 2 priority #2).
+  - `deep-work` `gather-signals.sh` — `jq '.scanned_at'` / `'.documents[]'` 로 root-level 읽음. envelope 후 `jq '.envelope.generated_at'` / `'.payload.documents[]'` 로 path 갱신 필요 (Phase 2 priority #3 의 deep-work session-receipt envelope adoption 과 동시 처리).
+- handoff §1 정책에 따라 본 PR 은 plugin repo 만 변경. consumer 측 갱신은 각 plugin 의 Phase 2 PR 책임 (병렬 자율).
 - claude-deep-suite Phase 2 Adoption ledger 의 1순위 항목 (`docs/envelope-migration.md` §6.1).
 
 ## [1.1.0] - 2026-04-17

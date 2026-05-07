@@ -284,7 +284,7 @@ non-git 환경에서는 git fallback 사용:
 - `payload.documents[]` — 각 항목 `{ path, issues[], metrics }`
 - `payload.summary` — `{ total_issues, auto_fixable, audit_only }`
 
-> 이전 (v1.1.0) shape 의 root-level `scanned_at`, `schema_version: 2`, `provenance.head_sha`, `provenance.branch` 는 envelope 으로 흡수되어 payload 에서 제거됐다. `scanned_at` 은 `envelope.generated_at`, `head_sha/branch` 는 `envelope.git`. payload 측 `provenance` 는 plugin-specific 필드 (`is_git`, `worktree_hash`) 만 보존.
+> 이전 (v1.1.0) shape 의 root-level `scanned_at`, `schema_version: 2`, `provenance.head_sha`, `provenance.branch` 는 envelope 으로 흡수되어 payload 에서 제거됐다. `scanned_at` 은 `envelope.generated_at`, `head_sha/branch` 는 `envelope.git`. payload 측 `provenance` 는 plugin-specific 필드 (`is_git`, `worktree_hash`, optional `path_check_enabled`) 만 보존 (cli-whitelist.md `$PATH` 체크 ON 시 `path_check_enabled: true` emit, OFF 시 omit).
 
 **issue 객체 필드** — payload 1.0 (envelope adoption 시점) — 필드명: `current_value` / `suggested_value` (v1.0 → v1.1.0 에서 `reference` / `suggestion` 로부터 rename 완료):
 
