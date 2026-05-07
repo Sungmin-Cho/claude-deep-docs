@@ -109,47 +109,65 @@ Deep Docs requires no configuration file. It creates `.deep-docs/` automatically
 
 ### Scan artifact: `.deep-docs/last-scan.json`
 
-Every scan writes a durable artifact with full provenance:
+Every scan writes a durable artifact wrapped in the **claude-deep-suite M3 cross-plugin envelope** (see `claude-deep-suite/docs/envelope-migration.md`):
 
 ```json
 {
-  "scanned_at": "2026-04-17T14:30:00Z",
-  "schema_version": 2,
-  "provenance": {
-    "is_git": true,
-    "head_sha": "abc123",
-    "branch": "main",
-    "worktree_hash": "3f8a..."
-  },
-  "documents": [
-    {
-      "path": "CLAUDE.md",
-      "issues": [...],
-      "metrics": {
-        "size_lines": 85,
-        "freshness_score": 7,
-        "reference_accuracy": 0.85,
-        "duplication_count": 1
-      }
+  "$schema": "https://raw.githubusercontent.com/Sungmin-Cho/claude-deep-suite/main/schemas/artifact-envelope.schema.json",
+  "schema_version": "1.0",
+  "envelope": {
+    "producer": "deep-docs",
+    "producer_version": "1.2.0",
+    "artifact_kind": "last-scan",
+    "run_id": "01KR0J7WBXJS57PBM04MYPHENX",
+    "generated_at": "2026-05-07T14:30:00Z",
+    "schema": { "name": "last-scan", "version": "1.0" },
+    "git": { "head": "abc1234", "branch": "main", "dirty": false },
+    "provenance": {
+      "source_artifacts": [
+        { "path": "CLAUDE.md" },
+        { "path": "README.md" }
+      ],
+      "tool_versions": { "node": "v20.x", "python": "3.12.x" }
     }
-  ],
-  "summary": {
-    "total_issues": 5,
-    "auto_fixable": 3,
-    "audit_only": 2
+  },
+  "payload": {
+    "provenance": {
+      "is_git": true,
+      "worktree_hash": "3f8a..."
+    },
+    "documents": [
+      {
+        "path": "CLAUDE.md",
+        "issues": [...],
+        "metrics": {
+          "size_lines": 85,
+          "freshness_score": 7,
+          "reference_accuracy": 0.85,
+          "duplication_count": 1
+        }
+      }
+    ],
+    "summary": {
+      "total_issues": 5,
+      "auto_fixable": 3,
+      "audit_only": 2
+    }
   }
 }
 ```
 
-`garden` and `audit` reuse this artifact if ALL hold:
-- `schema_version == 2`
-- Created within **10 minutes**
-- `provenance.head_sha` matches `git rev-parse HEAD` (git env)
-- `provenance.worktree_hash` matches recomputation (git env)
+`garden` and `audit` reuse this artifact if ALL hold (envelope-aware, 4-factor):
+- `schema_version === "1.0"` AND `envelope.schema.version === "1.0"`
+- `envelope.generated_at` within **10 minutes**
+- `envelope.git.head` matches `git rev-parse HEAD` (git env)
+- `payload.provenance.worktree_hash` matches recomputation (git env)
+
+Legacy v1.1.0 shape (`schema_version: 2` numeric, `scanned_at` at root, `provenance.head_sha`) auto-fails check 1 → re-scan triggered. The 10-minute TTL absorbs migration; no upgrade tooling needed.
 
 The `worktree_hash` covers tracked diff + untracked file list/content (NUL-safe, per-file git-hash-object). See `scan-filters/worktree-hash.md`.
 
-In non-git environments, only the 10-minute TTL applies.
+In non-git environments, only the 10-minute TTL applies. Envelope emits sentinel `git = { "head": "0000000", "branch": "HEAD", "dirty": "unknown" }`.
 
 ## Installation
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.0] - 2026-05-07
+
+### Changed
+- **`.deep-docs/last-scan.json` 이제 claude-deep-suite M3 cross-plugin envelope 으로 wrap** (`docs/envelope-migration.md`). top-level `schema_version: "1.0"` + `envelope` 블록 (`producer`, `producer_version`, `artifact_kind`, `run_id` ULID, `generated_at` RFC3339, `schema { name, version }`, `git { head, branch, dirty }`, `provenance { source_artifacts, tool_versions }`) + `payload` (기존 emit 의 documents/summary/provenance 일부).
+- 1.1.0 시점 root-level `scanned_at`, `schema_version: 2` (numeric), `provenance.head_sha`, `provenance.branch` 는 envelope 으로 흡수되어 payload 에서 제거. `payload.provenance` 는 plugin-specific 필드 (`is_git`, `worktree_hash`) 만 보존.
+- `garden`/`audit` 재사용 4-요소 규칙 envelope-aware 로 갱신: `schema_version === "1.0"` AND `envelope.schema.version === "1.0"` / `envelope.generated_at` 10분 / `envelope.git.head` / `payload.provenance.worktree_hash`. legacy `schema_version: 2` numeric 은 1번 검사에서 자동 fail → 재-scan (10분 TTL 자연 invalidation).
+- `package.json` 에 `"type": "module"` + `npm run validate:envelope` 스크립트 추가.
+
+### Added
+- `tests/fixtures/sample-last-scan.json` — envelope-wrapped sample emit
+- `scripts/validate-envelope-emit.js` — envelope contract self-test (zero-dep node)
+- `agents/doc-scanner.md` Step 12-A: ULID + git/tool 메타데이터 계산 Bash recipe
+- non-git 환경 sentinel: `envelope.git = { "head": "0000000", "branch": "HEAD", "dirty": "unknown" }`
+
+### Migration notes
+- 본 릴리스는 plugin-internal **breaking change** (artifact JSON shape). 외부 consumer (deep-dashboard) 가 옛 root-level 필드를 읽고 있다면 envelope-aware 로 마이그레이션 필요. 10분 TTL 보유 자연 invalidation 으로 사용자 측 도구 불필요.
+- claude-deep-suite Phase 2 Adoption ledger 의 1순위 항목 (`docs/envelope-migration.md` §6.1).
+
 ## [1.1.0] - 2026-04-17
 
 ### Breaking Changes
