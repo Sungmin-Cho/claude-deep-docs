@@ -319,6 +319,6 @@ garden/audit 실행 시 `.deep-docs/last-scan.json` 확인 (재사용 규칙, en
 
 하나라도 불일치하면 재-scan. **garden이 1건이라도 수정 적용 시** 종료 시 아티팩트 삭제 → 다음 audit은 반드시 재-scan.
 
-**non-git 환경**: `payload.provenance = { "is_git": false, "worktree_hash": "no-git" }`. `envelope.git = { "head": "0000000", "branch": "HEAD", "dirty": "unknown" }`. 재사용은 `envelope.generated_at` 10분 TTL만 판단.
+**non-git 환경**: `payload.provenance = { "is_git": false, "worktree_hash": "no-git" }`. `envelope.git = { "head": "0000000", "branch": "HEAD", "dirty": "unknown" }`. 재사용 시 identity 가드 + `envelope.generated_at` 10분 TTL + `payload.provenance.path_check_enabled` 비교는 **유지** (config 토글이 stale CLI classification 을 만들 수 있으므로 git 환경과 무관하게 무효화 트리거).
 
 **legacy artifact 처리**: 1.1.0 shape (`schema_version: 2` 가 numeric) 발견 시 즉시 재-scan (envelope 검사 1번에서 자연 fallthrough). 10분 TTL 보유 자연 invalidation 으로 추가 마이그레이션 코드 불필요.

@@ -34,7 +34,7 @@ user-invocable: false
    - `envelope.git.head` 일치 (git 환경)
    - `payload.provenance.worktree_hash` 일치 (git 환경, `scan-filters/worktree-hash.md` 재계산)
    - 하나라도 실패 → 재-scan
-   - non-git: identity 가드 + `envelope.generated_at` 10분 TTL
+   - non-git: identity 가드 + `envelope.generated_at` 10분 TTL + `payload.provenance.path_check_enabled` 비교 (config 토글 무효화는 git 환경과 무관)
 2. auto-fix 가능 항목만 추출
 3. 각 항목에 대해:
    a. 수정 내용을 diff 형태로 사용자에게 보여줌
@@ -56,7 +56,7 @@ user-invocable: false
    - `envelope.git.head` 일치 (git 환경)
    - `payload.provenance.worktree_hash` 일치 (git 환경, `scan-filters/worktree-hash.md` 재계산)
    - 하나라도 실패 → 재-scan
-   - non-git: identity 가드 + `envelope.generated_at` 10분 TTL
+   - non-git: identity 가드 + `envelope.generated_at` 10분 TTL + `payload.provenance.path_check_enabled` 비교 (config 토글 무효화는 git 환경과 무관)
 2. audit-metrics.md의 지표 계산:
    - 파일 크기
    - 신선도 (path-scoped)

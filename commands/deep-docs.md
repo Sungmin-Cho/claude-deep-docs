@@ -76,7 +76,7 @@ scan 결과를 기반으로 자동 수정합니다.
    - `envelope.git.head` 일치 (git)
    - `payload.provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
    - 하나라도 실패 → 재-scan (legacy `schema_version: 2` numeric 형식 포함)
-   - non-git 환경: identity 가드 + `envelope.generated_at` TTL 만
+   - non-git 환경: identity 가드 + `envelope.generated_at` TTL + `payload.provenance.path_check_enabled` 비교 (git 환경과 무관하게 config 토글 무효화)
 
 2. auto-fix 가능 항목만 추출 — `payload.documents[].issues[]` 기준 (scan-rules.md):
    - 죽은 참조
@@ -195,7 +195,7 @@ scan 결과를 기반으로 자동 수정합니다.
    - `envelope.git.head` 일치 (git)
    - `payload.provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
    - 하나라도 실패 → 재-scan
-   - non-git 환경: identity 가드 + `envelope.generated_at` TTL 만
+   - non-git 환경: identity 가드 + `envelope.generated_at` TTL + `payload.provenance.path_check_enabled` 비교 (git 환경과 무관하게 config 토글 무효화)
 
 2. audit-metrics.md 기준으로 지표 계산 (`payload.documents[].metrics` 사용):
 

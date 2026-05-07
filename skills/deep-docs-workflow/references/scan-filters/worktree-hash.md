@@ -167,8 +167,13 @@ def can_reuse_scan(artifact, now):
         return False
     payload = artifact.get("payload") or {}
     prov = payload.get("provenance") or {}
+    # path_check_enabled 는 cli-whitelist 의 $PATH 체크가 ON 인 경우에만 emit 됨 (cli-whitelist.md §Provenance).
+    # 기본값 (OFF) 일 때 emit 에 없으므로 absent → False 로 default 해야 config OFF 와 정상 매칭.
+    # **non-git 경로보다 먼저** 검사 — config 토글은 git 환경과 무관하게 stale CLI classification 을 만들 수 있음.
+    if prov.get("path_check_enabled", False) != bool(config.enable_path_check):
+        return False   # 환경 설정 변경도 무효화 (non-git 환경 포함)
     if not prov.get("is_git"):
-        # non-git: TTL only (already checked)
+        # non-git: identity guard + TTL + path_check_enabled 만 확인 (worktree_hash 는 "no-git", git head 부재)
         return True
     # 3. envelope.git.head ↔ HEAD
     if env["git"]["head"] != current_head_sha():
@@ -176,10 +181,6 @@ def can_reuse_scan(artifact, now):
     # 4. payload.provenance.worktree_hash ↔ 재계산
     if prov["worktree_hash"] != compute_worktree_hash():
         return False
-    # path_check_enabled 는 cli-whitelist 의 $PATH 체크가 ON 인 경우에만 emit 됨 (cli-whitelist.md §Provenance).
-    # 기본값 (OFF) 일 때 emit 에 없으므로 absent → False 로 default 해야 config OFF 와 정상 매칭.
-    if prov.get("path_check_enabled", False) != bool(config.enable_path_check):
-        return False   # 환경 설정 변경도 무효화
     return True
 ```
 
