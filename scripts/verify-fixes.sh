@@ -59,6 +59,10 @@ plugin_ver=$(python3 -c 'import json; print(json.load(open(".claude-plugin/plugi
 check "doc-scanner producer_version literal == plugin.json.version ($plugin_ver)" \
   "grep -Eq 'producer_version=\"'$plugin_ver'\"' agents/doc-scanner.md"
 
+# Round-2 polish: doc-scanner Step 12-B JSON example must also match plugin.json.version
+check "doc-scanner Step 12-B JSON example producer_version == $plugin_ver" \
+  "grep -Eq '\"producer_version\":\s*\"'$plugin_ver'\"' agents/doc-scanner.md"
+
 check "doc-scanner does NOT read .claude-plugin/plugin.json from cwd at runtime" \
   "! grep -E 'json\\.load\\(open\\(\"\\.claude-plugin/plugin\\.json\"\\)\\)' agents/doc-scanner.md"
 

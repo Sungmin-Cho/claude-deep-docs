@@ -274,7 +274,7 @@ non-git 환경에서는 git fallback 사용:
 - `envelope.git.head` === 7~40 hex (non-git 시 sentinel `"0000000"`).
 - `envelope.git.dirty` ∈ `{true, false, "unknown"}`.
 - `envelope.provenance.source_artifacts[]` === Step 1 에서 발견된 문서 path 목록 (각 항목 `{ "path": "<doc>" }`).
-- `envelope.provenance.tool_versions` === `{ "node": "<version>", "python": "<version>" }`.
+- `envelope.provenance.tool_versions` 는 **권장 키 `node`, `python`** 을 포함하는 object — envelope schema 는 임의 키 허용 (각 값은 string 또는 object). 어느 한 도구의 `--version` 호출이 실패하면 해당 키 omit 가능 (envelope schema 의 tool_versions 는 required 키를 명시 안 함).
 
 **payload 필드** (Step 1~11 결과를 wrapping):
 

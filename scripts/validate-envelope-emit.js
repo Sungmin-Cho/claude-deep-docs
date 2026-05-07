@@ -28,8 +28,32 @@ const SCHEMA_VERSION_RE = /^\d+\.\d+$/;
 const RFC3339_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const WORKTREE_HASH_RE = /^([a-f0-9]{40}|no-git)$/;
 
+// Suite envelope schema declares `additionalProperties: false` at root,
+// `envelope`, `git`, `provenance`, and each `source_artifacts[]` item, with
+// `^x-` patternProperties allowed for forward-compat at root + envelope.
+// Mirroring those allow-lists here closes the contract gap that lets a stray
+// legacy field (e.g., root-level `scanned_at`) silently pass the local self-test
+// while failing the suite validator (round-2 adversarial finding).
+const ALLOWED_ROOT_KEYS = new Set(['$schema', 'schema_version', 'envelope', 'payload']);
+const ALLOWED_ENVELOPE_KEYS = new Set([
+  'producer', 'producer_version', 'artifact_kind', 'run_id', 'session_id',
+  'parent_run_id', 'generated_at', 'schema', 'git', 'provenance',
+]);
+const ALLOWED_GIT_KEYS = new Set(['head', 'branch', 'worktree', 'dirty']);
+const ALLOWED_PROVENANCE_KEYS = new Set(['source_artifacts', 'tool_versions']);
+const ALLOWED_SOURCE_ARTIFACT_KEYS = new Set(['path', 'run_id']);
+const ALLOWED_SCHEMA_KEYS = new Set(['name', 'version']);
+
 const errors = [];
 function fail(msg) { errors.push(msg); }
+
+function reportUnknownKeys(obj, allowed, label, allowXExt) {
+  if (!obj || typeof obj !== 'object') return;
+  const extra = Object.keys(obj).filter((k) => !allowed.has(k) && !(allowXExt && k.startsWith('x-')));
+  if (extra.length > 0) {
+    fail(`${label}: unknown ${allowXExt ? 'non-x- ' : ''}keys [${extra.join(', ')}]`);
+  }
+}
 
 function loadPlugin() {
   const raw = readFileSync(resolve(REPO_ROOT, '.claude-plugin/plugin.json'), 'utf8');
@@ -62,6 +86,10 @@ function check(target) {
     return;
   }
   if (!('payload' in data)) fail('payload field missing');
+
+  // additionalProperties: false enforcement (suite-spec mirror; allows ^x- at root + envelope).
+  reportUnknownKeys(data, ALLOWED_ROOT_KEYS, 'root', true);
+  reportUnknownKeys(data.envelope, ALLOWED_ENVELOPE_KEYS, 'envelope', true);
 
   const env = data.envelope;
 
@@ -111,6 +139,7 @@ function check(target) {
   if (!env.git || typeof env.git !== 'object') {
     fail('envelope.git missing');
   } else {
+    reportUnknownKeys(env.git, ALLOWED_GIT_KEYS, 'envelope.git', false);
     if (!GIT_HEAD_RE.test(env.git.head || '')) {
       fail(`envelope.git.head must match ^[a-f0-9]{7,40}$ (got ${JSON.stringify(env.git.head)})`);
     }
@@ -126,18 +155,26 @@ function check(target) {
   if (!env.provenance || typeof env.provenance !== 'object') {
     fail('envelope.provenance missing');
   } else {
+    reportUnknownKeys(env.provenance, ALLOWED_PROVENANCE_KEYS, 'envelope.provenance', false);
     if (!Array.isArray(env.provenance.source_artifacts)) {
       fail('envelope.provenance.source_artifacts must be an array');
     } else {
       env.provenance.source_artifacts.forEach((sa, idx) => {
         if (!sa || typeof sa.path !== 'string' || sa.path.length === 0) {
           fail(`envelope.provenance.source_artifacts[${idx}].path must be non-empty string`);
+        } else {
+          reportUnknownKeys(sa, ALLOWED_SOURCE_ARTIFACT_KEYS, `envelope.provenance.source_artifacts[${idx}]`, false);
         }
       });
     }
     if (!env.provenance.tool_versions || typeof env.provenance.tool_versions !== 'object') {
       fail('envelope.provenance.tool_versions must be an object');
     }
+  }
+
+  // schema block additionalProperties (already verified .name/.version present).
+  if (env.schema && typeof env.schema === 'object') {
+    reportUnknownKeys(env.schema, ALLOWED_SCHEMA_KEYS, 'envelope.schema', false);
   }
 
   // 8. payload structure (deep-docs/last-scan v1.0 shape).
