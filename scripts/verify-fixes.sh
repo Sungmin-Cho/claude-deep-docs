@@ -54,6 +54,14 @@ done
 check "envelope schema_version \"1.0\" string in doc-scanner example" \
   "grep -Eq '\"schema_version\":\s*\"1\.0\"' agents/doc-scanner.md"
 
+# C-1 fix: doc-scanner 의 producer_version literal ↔ plugin.json.version 동기 (Codex finding #1)
+plugin_ver=$(python3 -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])')
+check "doc-scanner producer_version literal == plugin.json.version ($plugin_ver)" \
+  "grep -Eq 'producer_version=\"'$plugin_ver'\"' agents/doc-scanner.md"
+
+check "doc-scanner does NOT read .claude-plugin/plugin.json from cwd at runtime" \
+  "! grep -E 'json\\.load\\(open\\(\"\\.claude-plugin/plugin\\.json\"\\)\\)' agents/doc-scanner.md"
+
 check "envelope.producer \"deep-docs\" in doc-scanner example" \
   "grep -Eq '\"producer\":\s*\"deep-docs\"' agents/doc-scanner.md"
 

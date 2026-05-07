@@ -166,8 +166,12 @@ git rev-parse HEAD                                  # head (40-hex)
 git rev-parse --abbrev-ref HEAD                     # branch
 [ -z "$(git status --porcelain)" ] && echo false || echo true   # dirty
 
-# producer_version: 플러그인 정본
-python3 -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])'
+# producer_version: 플러그인 정본 — **literal 사용 의무**.
+# 사용자 프로젝트 cwd 에서는 ./.claude-plugin/plugin.json 이 deep-docs 의 것이 아니거나
+# 부재하므로 cwd-relative read 로는 해결 불가. 매 릴리스마다 deep-docs/.claude-plugin/plugin.json
+# 의 version 과 일치하는 literal 을 envelope.producer_version 에 직접 emit 한다.
+# scripts/verify-fixes.sh 가 literal ↔ plugin.json.version 동기 검증 (release lint).
+producer_version="1.2.0"   # ← deep-docs plugin release literal (sync with .claude-plugin/plugin.json)
 
 # tool_versions
 node --version

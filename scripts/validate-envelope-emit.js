@@ -26,6 +26,7 @@ const KEBAB_RE = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const GIT_HEAD_RE = /^[a-f0-9]{7,40}$/;
 const SCHEMA_VERSION_RE = /^\d+\.\d+$/;
 const RFC3339_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const WORKTREE_HASH_RE = /^([a-f0-9]{40}|no-git)$/;
 
 const errors = [];
 function fail(msg) { errors.push(msg); }
@@ -157,8 +158,8 @@ function check(target) {
     if (typeof pl.provenance.is_git !== 'boolean') {
       fail(`payload.provenance.is_git must be boolean (got ${JSON.stringify(pl.provenance.is_git)})`);
     }
-    if (typeof pl.provenance.worktree_hash !== 'string' || pl.provenance.worktree_hash.length === 0) {
-      fail(`payload.provenance.worktree_hash must be non-empty string (got ${JSON.stringify(pl.provenance.worktree_hash)})`);
+    if (!WORKTREE_HASH_RE.test(pl.provenance.worktree_hash || '')) {
+      fail(`payload.provenance.worktree_hash must match ^[a-f0-9]{40}$ or "no-git" (got ${JSON.stringify(pl.provenance.worktree_hash)})`);
     }
   }
 }

@@ -30,7 +30,7 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 ```
 
-non-git 환경이면 `"no-git"` 반환, 재사용 로직은 `scanned_at` TTL만 사용.
+non-git 환경이면 `"no-git"` 반환, 재사용 로직은 `envelope.generated_at` TTL만 사용 (M3 envelope 기준; 1.1.0 시점 root-level `scanned_at` 은 envelope 으로 흡수됨).
 
 ### Step 2. 안전한 직렬화 (NEW-RCE + BU-3 + BU-4 대응)
 
