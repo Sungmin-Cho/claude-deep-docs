@@ -217,7 +217,7 @@ if config.enable_path_check:
         return (False, f"found in $PATH: {binary}")
 ```
 
-**경고**: `$PATH` 체크가 켜지면 스캔 결과가 개발자 머신에 의존 → reproducibility 훼손. `last-scan.json.provenance`에 `path_check_enabled: true` 기록 + 재사용 시 설정 일치 검증.
+**경고**: `$PATH` 체크가 켜지면 스캔 결과가 개발자 머신에 의존 → reproducibility 훼손. M3 envelope 의 `payload.provenance.path_check_enabled: true` 에 기록 + 재사용 시 설정 일치 검증.
 
 ### Step 4. 최종 판정
 
@@ -337,7 +337,7 @@ is_cli_stale() {
 
 - **Input from `reference-extraction.md`**: `kind: "cli"` Reference를 입력.
 - **Step 3 (참조 검증)**: stale 판정 결과를 issue로 기록 (`type: "stale-example"`, `category`에 따라 auto-fix 또는 audit-only).
-- **Provenance**: `$PATH` check 사용 여부를 `last-scan.json.provenance.path_check_enabled`에 기록.
+- **Provenance**: `$PATH` check 사용 여부를 M3 envelope 의 `payload.provenance.path_check_enabled` 에 기록 (v1.2.0+; 이전 v1.1.0 root-level `provenance.path_check_enabled` 은 envelope migration 으로 이동됨).
 
 ## 버전
 

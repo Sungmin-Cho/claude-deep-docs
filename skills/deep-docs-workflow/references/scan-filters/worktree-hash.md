@@ -166,13 +166,22 @@ def can_reuse_scan(artifact, now):
     if (now - parse_iso(env["generated_at"])).total_seconds() > 600:
         return False
     payload = artifact.get("payload") or {}
-    prov = payload.get("provenance") or {}
+    prov = payload.get("provenance")
+    # payload.provenance 자체가 없거나 객체가 아닌 경우 → corrupt/partial emit. 재-scan.
+    # (절대 fast-path 로 흘러가지 않도록 — buggy writer 가 만든 empty payload 가 git repo 에서
+    #  is_git=False 로 오인되어 head/worktree_hash 검사 우회되는 것을 방지.)
+    if not isinstance(prov, dict):
+        return False
     # path_check_enabled 는 cli-whitelist 의 $PATH 체크가 ON 인 경우에만 emit 됨 (cli-whitelist.md §Provenance).
     # 기본값 (OFF) 일 때 emit 에 없으므로 absent → False 로 default 해야 config OFF 와 정상 매칭.
     # **non-git 경로보다 먼저** 검사 — config 토글은 git 환경과 무관하게 stale CLI classification 을 만들 수 있음.
     if prov.get("path_check_enabled", False) != bool(config.enable_path_check):
         return False   # 환경 설정 변경도 무효화 (non-git 환경 포함)
-    if not prov.get("is_git"):
+    # is_git 은 명시적 boolean 이어야 함 (absent → "어떤 환경인지 모름" → 재-scan).
+    is_git_value = prov.get("is_git")
+    if not isinstance(is_git_value, bool):
+        return False   # explicit is_git 필드 부재 시 fast-path 신뢰 불가
+    if not is_git_value:
         # non-git: identity guard + TTL + path_check_enabled 만 확인 (worktree_hash 는 "no-git", git head 부재)
         return True
     # 3. envelope.git.head ↔ HEAD
