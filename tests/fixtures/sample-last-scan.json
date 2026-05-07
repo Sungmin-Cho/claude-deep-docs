@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Sungmin-Cho/claude-deep-suite/main/schemas/artifact-envelope.schema.json",
+  "schema_version": "1.0",
+  "envelope": {
+    "producer": "deep-docs",
+    "producer_version": "1.2.0",
+    "artifact_kind": "last-scan",
+    "run_id": "01KR0J7WBXJS57PBM04MYPHENX",
+    "generated_at": "2026-05-07T10:00:00Z",
+    "schema": { "name": "last-scan", "version": "1.0" },
+    "git": {
+      "head": "3840da993e96c57c07ba569b02a8ab0129e76f8a",
+      "branch": "feat/m3-envelope-adoption",
+      "dirty": false
+    },
+    "provenance": {
+      "source_artifacts": [
+        { "path": "CLAUDE.md" },
+        { "path": "README.md" },
+        { "path": "AGENTS.md" }
+      ],
+      "tool_versions": {
+        "node": "v20.11.0",
+        "python": "3.12.3"
+      }
+    }
+  },
+  "payload": {
+    "provenance": {
+      "is_git": true,
+      "worktree_hash": "3f8a0b1c2d4e5f607182930a1b2c3d4e5f607182"
+    },
+    "documents": [
+      {
+        "path": "CLAUDE.md",
+        "issues": [
+          {
+            "type": "dead-reference",
+            "category": "auto-fix",
+            "severity": "high",
+            "line": 42,
+            "current_value": "src/auth/middleware.ts",
+            "suggested_value": "src/auth/auth-middleware.ts",
+            "evidence": "git rename detected"
+          }
+        ],
+        "metrics": {
+          "size_lines": 85,
+          "freshness_score": 7,
+          "reference_accuracy": 0.85,
+          "duplication_count": 1
+        }
+      }
+    ],
+    "summary": {
+      "total_issues": 1,
+      "auto_fixable": 1,
+      "audit_only": 0
+    }
+  }
+}

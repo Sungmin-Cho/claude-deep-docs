@@ -51,8 +51,29 @@ for filter in translation-pair code-fence reference-extraction cli-whitelist wor
 done
 
 # ===== Artifact provenance (H-1, H-2, H-5) =====
-check "schema_version == 2 in doc-scanner example" \
-  "grep -Eq '\"schema_version\":\s*2' agents/doc-scanner.md"
+check "envelope schema_version \"1.0\" string in doc-scanner example" \
+  "grep -Eq '\"schema_version\":\s*\"1\.0\"' agents/doc-scanner.md"
+
+# C-1 fix: doc-scanner 의 producer_version literal ↔ plugin.json.version 동기 (Codex finding #1)
+plugin_ver=$(python3 -c 'import json; print(json.load(open(".claude-plugin/plugin.json"))["version"])')
+check "doc-scanner producer_version literal == plugin.json.version ($plugin_ver)" \
+  "grep -Eq 'producer_version=\"'$plugin_ver'\"' agents/doc-scanner.md"
+
+# Round-2 polish: doc-scanner Step 12-B JSON example must also match plugin.json.version
+check "doc-scanner Step 12-B JSON example producer_version == $plugin_ver" \
+  "grep -Eq '\"producer_version\":\s*\"'$plugin_ver'\"' agents/doc-scanner.md"
+
+check "doc-scanner does NOT read .claude-plugin/plugin.json from cwd at runtime" \
+  "! grep -E 'json\\.load\\(open\\(\"\\.claude-plugin/plugin\\.json\"\\)\\)' agents/doc-scanner.md"
+
+check "envelope.producer \"deep-docs\" in doc-scanner example" \
+  "grep -Eq '\"producer\":\s*\"deep-docs\"' agents/doc-scanner.md"
+
+check "envelope.artifact_kind \"last-scan\" in doc-scanner example" \
+  "grep -Eq '\"artifact_kind\":\s*\"last-scan\"' agents/doc-scanner.md"
+
+check "envelope schema.name == artifact_kind identity in doc-scanner" \
+  "grep -Eq '\"schema\":\s*\\{\s*\"name\":\s*\"last-scan\"' agents/doc-scanner.md"
 
 check "worktree_hash in doc-scanner" \
   "grep -q 'worktree_hash' agents/doc-scanner.md"
@@ -63,8 +84,8 @@ check "worktree_hash in commands" \
 check "worktree_hash in SKILL.md" \
   "grep -q 'worktree_hash' skills/deep-docs-workflow/SKILL.md"
 
-check "4-factor reuse rule documented" \
-  "grep -Eq '4-요소|4-factor|schema_version.*일치|schema_version ==' commands/deep-docs.md skills/deep-docs-workflow/SKILL.md"
+check "4-factor reuse rule documented (envelope-aware)" \
+  "grep -Eq 'envelope.schema.version|envelope\\.generated_at|envelope\\.git\\.head' commands/deep-docs.md skills/deep-docs-workflow/SKILL.md"
 
 # ===== Freshness & audit (H-4, M-1, M-2, M-3) =====
 check "freshness_score example uses valid scale (not 6) — all runtime files" \
@@ -103,8 +124,7 @@ check "hooks/hooks.json removed" \
 check ".gitignore includes .deep-docs/" \
   "grep -q '^\.deep-docs/' .gitignore"
 
-check "docs/backlog-2026-04-16.md committed" \
-  "git ls-files --error-unmatch docs/backlog-2026-04-16.md > /dev/null 2>&1"
+# docs/ 는 commit 3840da9 (chore: gitignore docs/) 이후 author-local. 추적 검사 제거.
 
 # ===== Platform compat (O-6) =====
 check "scan-filters use shasum -a 1 (not sha1sum)" \
@@ -117,14 +137,27 @@ check "worktree-hash.md: 절대 금지 educational warning present" \
   "grep -q '절대 금지' skills/deep-docs-workflow/references/scan-filters/worktree-hash.md"
 
 # ===== Version sync =====
-check "plugin.json version = 1.1.0" \
-  "grep -q '\"version\":\s*\"1.1.0\"' .claude-plugin/plugin.json"
+check "plugin.json version = 1.2.0" \
+  "grep -q '\"version\":\s*\"1.2.0\"' .claude-plugin/plugin.json"
 
-check "package.json version = 1.1.0" \
-  "grep -q '\"version\":\s*\"1.1.0\"' package.json"
+check "package.json version = 1.2.0" \
+  "grep -q '\"version\":\s*\"1.2.0\"' package.json"
 
-check "CHANGELOG has [1.1.0] entry" \
-  "grep -q '\[1.1.0\]' CHANGELOG.md"
+check "package.json type = module" \
+  "grep -Eq '\"type\":\s*\"module\"' package.json"
+
+check "CHANGELOG has [1.2.0] entry" \
+  "grep -q '\[1.2.0\]' CHANGELOG.md"
+
+# ===== M3 envelope adoption =====
+check "envelope fixture exists" \
+  "[ -f tests/fixtures/sample-last-scan.json ]"
+
+check "validate-envelope-emit.js exists" \
+  "[ -f scripts/validate-envelope-emit.js ]"
+
+check "envelope self-test passes" \
+  "node scripts/validate-envelope-emit.js"
 
 # ===== Result =====
 echo "---"

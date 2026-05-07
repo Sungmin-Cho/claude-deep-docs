@@ -66,15 +66,19 @@ scan 결과를 기반으로 자동 수정합니다.
 
 **Steps:**
 
-1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙):
-   - `schema_version == 2`
-   - `scanned_at` 10분 이내
-   - `provenance.head_sha` 일치 (git)
-   - `provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
-   - 하나라도 실패 → 재-scan
-   - non-git 환경: scanned_at TTL만
+1. `.deep-docs/last-scan.json` 확인 (재사용 규칙, M3 envelope-aware, 5-요소 + 3 identity guards):
+   - **identity 가드** (deep-docs/last-scan envelope 인지 확인 — defense-in-depth):
+     - `envelope.producer === "deep-docs"`
+     - `envelope.artifact_kind === "last-scan"`
+     - `envelope.schema.name === "last-scan"`
+   - `schema_version === "1.0"` (top-level) AND `envelope.schema.version === "1.0"`
+   - `envelope.generated_at` 10분 이내
+   - `envelope.git.head` 일치 (git)
+   - `payload.provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
+   - 하나라도 실패 → 재-scan (legacy `schema_version: 2` numeric 형식 포함)
+   - non-git 환경: identity 가드 + `envelope.generated_at` TTL + `payload.provenance.path_check_enabled` 비교 (git 환경과 무관하게 config 토글 무효화)
 
-2. auto-fix 가능 항목만 추출 (scan-rules.md 기준):
+2. auto-fix 가능 항목만 추출 — `payload.documents[].issues[]` 기준 (scan-rules.md):
    - 죽은 참조
    - 이동/리네임된 경로
    - 오래된 예시/명령어
@@ -184,17 +188,18 @@ scan 결과를 기반으로 자동 수정합니다.
 
 **Steps:**
 
-1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙):
-   - `schema_version == 2`
-   - `scanned_at` 10분 이내
-   - `provenance.head_sha` 일치 (git)
-   - `provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
+1. `.deep-docs/last-scan.json` 확인 (재사용 규칙, M3 envelope-aware, 5-요소 + 3 identity guards — garden 과 동일):
+   - **identity 가드**: `envelope.producer === "deep-docs"`, `envelope.artifact_kind === "last-scan"`, `envelope.schema.name === "last-scan"`
+   - `schema_version === "1.0"` AND `envelope.schema.version === "1.0"`
+   - `envelope.generated_at` 10분 이내
+   - `envelope.git.head` 일치 (git)
+   - `payload.provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
    - 하나라도 실패 → 재-scan
-   - non-git 환경: scanned_at TTL만
+   - non-git 환경: identity 가드 + `envelope.generated_at` TTL + `payload.provenance.path_check_enabled` 비교 (git 환경과 무관하게 config 토글 무효화)
 
-2. audit-metrics.md 기준으로 지표 계산 (last-scan.json의 metrics 사용):
+2. audit-metrics.md 기준으로 지표 계산 (`payload.documents[].metrics` 사용):
 
-   a. **파일 크기**: last-scan.json의 각 문서 size_lines 사용
+   a. **파일 크기**: `payload.documents[].metrics.size_lines` 사용
       (참고: 직접 측정 시 Bash로 `wc -l` — 존재하는 파일만 대상, glob 미매치 안전 처리)
       ```bash
       for f in CLAUDE.md AGENTS.md README.md; do [ -f "$f" ] && wc -l "$f"; done

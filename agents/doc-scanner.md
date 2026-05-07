@@ -150,52 +150,143 @@ rename 이력이 있으면 새 경로를 기록.
 
 결과를 JSON 파일로 저장하여 garden과 audit에서 재사용 가능하게 함.
 
-### 12. 결과 저장 (Durable Scan Artifact)
-<!-- Step 12 → .deep-docs/last-scan.json 저장 (schema_version: 2). worktree-hash.md 필터로 provenance 계산. -->
+### 12. 결과 저장 (Durable Scan Artifact, M3 envelope)
+<!-- Step 12 → .deep-docs/last-scan.json 저장 (M3 envelope, payload schema 1.0). worktree-hash.md 필터로 payload provenance 계산. -->
 
-결과를 `.deep-docs/last-scan.json`에 저장:
+결과는 **claude-deep-suite M3 공통 envelope**에 wrap하여 `.deep-docs/last-scan.json`에 저장한다 (`docs/envelope-migration.md` §1, §4 참조). envelope 필드 계산은 Bash로 수행한다.
+
+**Step 12-A. envelope 필드 계산 (Bash)**
+
+```bash
+# generated_at: RFC 3339 (UTC, second precision)
+date -u +"%Y-%m-%dT%H:%M:%SZ"
+
+# git.head / git.branch / git.dirty (Step 0 분기 결과 그대로 사용)
+git rev-parse HEAD                                  # head (40-hex)
+git rev-parse --abbrev-ref HEAD                     # branch
+[ -z "$(git status --porcelain)" ] && echo false || echo true   # dirty
+
+# producer_version: 플러그인 정본 — **literal 사용 의무**.
+# 사용자 프로젝트 cwd 에서는 ./.claude-plugin/plugin.json 이 deep-docs 의 것이 아니거나
+# 부재하므로 cwd-relative read 로는 해결 불가. 매 릴리스마다 deep-docs/.claude-plugin/plugin.json
+# 의 version 과 일치하는 literal 을 envelope.producer_version 에 직접 emit 한다.
+# scripts/verify-fixes.sh 가 literal ↔ plugin.json.version 동기 검증 (release lint).
+producer_version="1.2.0"   # ← deep-docs plugin release literal (sync with .claude-plugin/plugin.json)
+
+# tool_versions
+node --version
+python3 --version
+
+# run_id: ULID (26-char Crockford Base32, MSB-first 시간)
+python3 - <<'PY'
+import os, time
+ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+ts = int(time.time() * 1000)
+ts_chars = []
+for _ in range(10):
+    ts_chars.append(ALPHABET[ts & 0x1F])
+    ts >>= 5
+ts_part = ''.join(reversed(ts_chars))               # MSB-first → lex sort = time sort
+rb = int.from_bytes(os.urandom(10), 'big')
+r_chars = []
+for _ in range(16):
+    r_chars.append(ALPHABET[rb & 0x1F])
+    rb >>= 5
+print(ts_part + ''.join(reversed(r_chars)))         # 26 chars total
+PY
+```
+
+non-git 환경에서는 git fallback 사용:
+- `head = "0000000"` (sentinel, envelope schema regex `^[a-f0-9]{7,40}$` 통과)
+- `branch = "HEAD"`
+- `dirty = "unknown"` (literal string, envelope schema 허용값)
+
+**Step 12-B. envelope 객체 조립 + Write**
+
+`.deep-docs/last-scan.json` 에 다음 형태로 저장:
 
 ```json
 {
-  "scanned_at": "2026-04-17T10:00:00Z",
-  "schema_version": 2,
-  "provenance": {
-    "is_git": true,
-    "head_sha": "abc123",
-    "branch": "main",
-    "worktree_hash": "3f8a..."
-  },
-  "documents": [
-    {
-      "path": "CLAUDE.md",
-      "issues": [
-        {
-          "type": "dead-reference",
-          "category": "auto-fix",
-          "severity": "high",
-          "line": 42,
-          "current_value": "src/auth/middleware.ts",
-          "suggested_value": "src/auth/auth-middleware.ts",
-          "evidence": "git rename detected"
-        }
+  "$schema": "https://raw.githubusercontent.com/Sungmin-Cho/claude-deep-suite/main/schemas/artifact-envelope.schema.json",
+  "schema_version": "1.0",
+  "envelope": {
+    "producer": "deep-docs",
+    "producer_version": "1.2.0",
+    "artifact_kind": "last-scan",
+    "run_id": "01KR0J7WBXJS57PBM04MYPHENX",
+    "generated_at": "2026-05-07T10:00:00Z",
+    "schema": { "name": "last-scan", "version": "1.0" },
+    "git": { "head": "abc1234", "branch": "main", "dirty": false },
+    "provenance": {
+      "source_artifacts": [
+        { "path": "CLAUDE.md" },
+        { "path": "AGENTS.md" },
+        { "path": "README.md" }
       ],
-      "metrics": {
-        "size_lines": 85,
-        "freshness_score": 7,
-        "reference_accuracy": 0.85,
-        "duplication_count": 1
-      }
+      "tool_versions": { "node": "v20.x", "python": "3.12.x" }
     }
-  ],
-  "summary": {
-    "total_issues": 5,
-    "auto_fixable": 3,
-    "audit_only": 2
+  },
+  "payload": {
+    "provenance": {
+      "is_git": true,
+      "worktree_hash": "3f8a..."
+    },
+    "documents": [
+      {
+        "path": "CLAUDE.md",
+        "issues": [
+          {
+            "type": "dead-reference",
+            "category": "auto-fix",
+            "severity": "high",
+            "line": 42,
+            "current_value": "src/auth/middleware.ts",
+            "suggested_value": "src/auth/auth-middleware.ts",
+            "evidence": "git rename detected"
+          }
+        ],
+        "metrics": {
+          "size_lines": 85,
+          "freshness_score": 7,
+          "reference_accuracy": 0.85,
+          "duplication_count": 1
+        }
+      }
+    ],
+    "summary": {
+      "total_issues": 5,
+      "auto_fixable": 3,
+      "audit_only": 2
+    }
   }
 }
 ```
 
-**issue 객체 필드** (schema_version: 2) — 필드 rename: `current_value` / `suggested_value` (구: `reference` / `suggestion`):
+**중요한 envelope contract**:
+
+- `schema_version` (top-level) === `"1.0"` — envelope wrapper 버전 (M3 lock).
+- `envelope.producer` === `"deep-docs"` (kebab-case strict).
+- `envelope.producer_version` === `.claude-plugin/plugin.json` 의 `version` (단일 진실원본).
+- `envelope.artifact_kind` === `"last-scan"`.
+- `envelope.schema.name` === `"last-scan"` (artifact_kind 와 동일 — Phase 1 round-4 identity check).
+- `envelope.schema.version` === `"1.0"` — payload schema 버전.
+- `envelope.run_id` === ULID 26자 Crockford Base32 (`^[0-9A-HJKMNP-TV-Z]{26}$`, `O/I/L/U` 제외).
+- `envelope.git.head` === 7~40 hex (non-git 시 sentinel `"0000000"`).
+- `envelope.git.dirty` ∈ `{true, false, "unknown"}`.
+- `envelope.provenance.source_artifacts[]` === Step 1 에서 발견된 문서 path 목록 (각 항목 `{ "path": "<doc>" }`).
+- `envelope.provenance.tool_versions` 는 **권장 키 `node`, `python`** 을 포함하는 object — envelope schema 는 임의 키 허용 (각 값은 string 또는 object). 어느 한 도구의 `--version` 호출이 실패하면 해당 키 omit 가능 (envelope schema 의 tool_versions 는 required 키를 명시 안 함).
+
+**payload 필드** (Step 1~11 결과를 wrapping):
+
+- `payload.provenance.is_git` (bool)
+- `payload.provenance.worktree_hash` (sha1 40-hex 또는 `"no-git"`) — `scan-filters/worktree-hash.md` 필터로 계산
+- `payload.provenance.path_check_enabled` (bool, **optional**) — `scan-filters/cli-whitelist.md` 의 `$PATH` 체크가 ON 일 때만 emit (`true`). OFF 일 때는 omit. 재사용 4-요소 규칙의 `prov.get("path_check_enabled", False) != bool(config.enable_path_check)` 비교에 사용.
+- `payload.documents[]` — 각 항목 `{ path, issues[], metrics }`
+- `payload.summary` — `{ total_issues, auto_fixable, audit_only }`
+
+> 이전 (v1.1.0) shape 의 root-level `scanned_at`, `schema_version: 2`, `provenance.head_sha`, `provenance.branch` 는 envelope 으로 흡수되어 payload 에서 제거됐다. `scanned_at` 은 `envelope.generated_at`, `head_sha/branch` 는 `envelope.git`. payload 측 `provenance` 는 plugin-specific 필드 (`is_git`, `worktree_hash`, optional `path_check_enabled`) 만 보존 (cli-whitelist.md `$PATH` 체크 ON 시 `path_check_enabled: true` emit, OFF 시 omit).
+
+**issue 객체 필드** — payload 1.0 (envelope adoption 시점) — 필드명: `current_value` / `suggested_value` (v1.0 → v1.1.0 에서 `reference` / `suggestion` 로부터 rename 완료):
 
 - `type`: 허용 enum `dead-reference | moved-path | stale-example | duplicate-block | size-warning`
 - `category`: `"auto-fix"` 또는 `"audit-only"`
@@ -215,13 +306,19 @@ rename 이력이 있으면 새 경로를 기록.
 | `duplicate-block` | 중복 지침 블록 |
 | `size-warning` | 크기 초과 |
 
-garden/audit 실행 시 `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙):
+garden/audit 실행 시 `.deep-docs/last-scan.json` 확인 (재사용 규칙, envelope-aware, 5-요소 + 3 identity guards):
 
-1. `schema_version == 2` — 버전 불일치 시 재-scan
-2. `scanned_at`이 현재 기준 10분 이내
-3. `provenance.head_sha == git rev-parse HEAD` (git 환경만)
-4. `provenance.worktree_hash == scan-filters/worktree-hash.md 재계산값` (git 환경만)
+0. **identity 가드** — deep-docs/last-scan envelope 인지 확인 (defense-in-depth):
+   - `envelope.producer === "deep-docs"`
+   - `envelope.artifact_kind === "last-scan"`
+   - `envelope.schema.name === "last-scan"`
+1. `schema_version === "1.0"` (top-level) **AND** `envelope.schema.version === "1.0"` — envelope wrapper + payload schema 양쪽 일치. 미스매치 시 재-scan
+2. `envelope.generated_at`이 현재 기준 10분 이내 (RFC 3339 → epoch 변환 후 비교)
+3. `envelope.git.head === git rev-parse HEAD` (git 환경만)
+4. `payload.provenance.worktree_hash === scan-filters/worktree-hash.md 재계산값` (git 환경만)
 
 하나라도 불일치하면 재-scan. **garden이 1건이라도 수정 적용 시** 종료 시 아티팩트 삭제 → 다음 audit은 반드시 재-scan.
 
-**non-git 환경**: `provenance = { "is_git": false }` 만. 재사용은 `scanned_at` 10분 TTL만 판단.
+**non-git 환경**: `payload.provenance = { "is_git": false, "worktree_hash": "no-git" }`. `envelope.git = { "head": "0000000", "branch": "HEAD", "dirty": "unknown" }`. 재사용 시 identity 가드 + `envelope.generated_at` 10분 TTL + `payload.provenance.path_check_enabled` 비교는 **유지** (config 토글이 stale CLI classification 을 만들 수 있으므로 git 환경과 무관하게 무효화 트리거).
+
+**legacy artifact 처리**: 1.1.0 shape (`schema_version: 2` 가 numeric) 발견 시 즉시 재-scan (envelope 검사 1번에서 자연 fallthrough). 10분 TTL 보유 자연 invalidation 으로 추가 마이그레이션 코드 불필요.
