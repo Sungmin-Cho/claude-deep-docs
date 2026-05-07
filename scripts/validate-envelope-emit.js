@@ -194,9 +194,30 @@ function check(target) {
   }
   if (!Array.isArray(pl.documents)) {
     fail('payload.documents must be an array');
+  } else {
+    // Minimal per-entry shape check (full schema deferred to suite-side
+    // payload-registry per handoff §3.4). Each document must be a non-null,
+    // non-array object with `path` (non-empty string), `issues` (array),
+    // and `metrics` (object). Per-issue/metric/summary shape is the suite
+    // schema's job; this just blocks the obvious null/empty cases.
+    pl.documents.forEach((doc, idx) => {
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+        fail(`payload.documents[${idx}] must be a non-null, non-array object`);
+        return;
+      }
+      if (typeof doc.path !== 'string' || doc.path.length === 0) {
+        fail(`payload.documents[${idx}].path must be non-empty string`);
+      }
+      if (!Array.isArray(doc.issues)) {
+        fail(`payload.documents[${idx}].issues must be an array`);
+      }
+      if (!doc.metrics || typeof doc.metrics !== 'object' || Array.isArray(doc.metrics)) {
+        fail(`payload.documents[${idx}].metrics must be a non-null, non-array object`);
+      }
+    });
   }
-  if (!pl.summary || typeof pl.summary !== 'object') {
-    fail('payload.summary must be an object');
+  if (!pl.summary || typeof pl.summary !== 'object' || Array.isArray(pl.summary)) {
+    fail('payload.summary must be a non-null, non-array object');
   }
   if (!pl.provenance || typeof pl.provenance !== 'object') {
     fail('payload.provenance must be an object');

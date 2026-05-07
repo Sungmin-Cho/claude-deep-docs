@@ -27,13 +27,14 @@ user-invocable: false
 
 ### garden 워크플로우
 
-1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙, M3 envelope):
+1. `.deep-docs/last-scan.json` 확인 (재사용 규칙, M3 envelope-aware, 5-요소 + 3 identity guards):
+   - identity 가드: `envelope.producer === "deep-docs"`, `envelope.artifact_kind === "last-scan"`, `envelope.schema.name === "last-scan"`
    - `schema_version === "1.0"` (top-level) AND `envelope.schema.version === "1.0"` (불일치 시 재-scan, legacy `schema_version: 2` numeric 형식 포함)
    - `envelope.generated_at` 10분 이내
    - `envelope.git.head` 일치 (git 환경)
    - `payload.provenance.worktree_hash` 일치 (git 환경, `scan-filters/worktree-hash.md` 재계산)
    - 하나라도 실패 → 재-scan
-   - non-git: `envelope.generated_at` 10분 TTL만
+   - non-git: identity 가드 + `envelope.generated_at` 10분 TTL
 2. auto-fix 가능 항목만 추출
 3. 각 항목에 대해:
    a. 수정 내용을 diff 형태로 사용자에게 보여줌
@@ -48,13 +49,14 @@ user-invocable: false
 
 ### audit 워크플로우
 
-1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙, M3 envelope):
-   - `schema_version === "1.0"` (top-level) AND `envelope.schema.version === "1.0"` (불일치 시 재-scan)
+1. `.deep-docs/last-scan.json` 확인 (재사용 규칙, M3 envelope-aware, 5-요소 + 3 identity guards — garden 과 동일):
+   - identity 가드: `envelope.producer === "deep-docs"`, `envelope.artifact_kind === "last-scan"`, `envelope.schema.name === "last-scan"`
+   - `schema_version === "1.0"` AND `envelope.schema.version === "1.0"` (불일치 시 재-scan)
    - `envelope.generated_at` 10분 이내
    - `envelope.git.head` 일치 (git 환경)
    - `payload.provenance.worktree_hash` 일치 (git 환경, `scan-filters/worktree-hash.md` 재계산)
    - 하나라도 실패 → 재-scan
-   - non-git: `envelope.generated_at` 10분 TTL만
+   - non-git: identity 가드 + `envelope.generated_at` 10분 TTL
 2. audit-metrics.md의 지표 계산:
    - 파일 크기
    - 신선도 (path-scoped)

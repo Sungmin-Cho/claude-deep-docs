@@ -66,13 +66,17 @@ scan 결과를 기반으로 자동 수정합니다.
 
 **Steps:**
 
-1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙, M3 envelope):
+1. `.deep-docs/last-scan.json` 확인 (재사용 규칙, M3 envelope-aware, 5-요소 + 3 identity guards):
+   - **identity 가드** (deep-docs/last-scan envelope 인지 확인 — defense-in-depth):
+     - `envelope.producer === "deep-docs"`
+     - `envelope.artifact_kind === "last-scan"`
+     - `envelope.schema.name === "last-scan"`
    - `schema_version === "1.0"` (top-level) AND `envelope.schema.version === "1.0"`
    - `envelope.generated_at` 10분 이내
    - `envelope.git.head` 일치 (git)
    - `payload.provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
    - 하나라도 실패 → 재-scan (legacy `schema_version: 2` numeric 형식 포함)
-   - non-git 환경: `envelope.generated_at` TTL만
+   - non-git 환경: identity 가드 + `envelope.generated_at` TTL 만
 
 2. auto-fix 가능 항목만 추출 — `payload.documents[].issues[]` 기준 (scan-rules.md):
    - 죽은 참조
@@ -184,13 +188,14 @@ scan 결과를 기반으로 자동 수정합니다.
 
 **Steps:**
 
-1. `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙, M3 envelope):
-   - `schema_version === "1.0"` (top-level) AND `envelope.schema.version === "1.0"`
+1. `.deep-docs/last-scan.json` 확인 (재사용 규칙, M3 envelope-aware, 5-요소 + 3 identity guards — garden 과 동일):
+   - **identity 가드**: `envelope.producer === "deep-docs"`, `envelope.artifact_kind === "last-scan"`, `envelope.schema.name === "last-scan"`
+   - `schema_version === "1.0"` AND `envelope.schema.version === "1.0"`
    - `envelope.generated_at` 10분 이내
    - `envelope.git.head` 일치 (git)
    - `payload.provenance.worktree_hash` 일치 (git, `scan-filters/worktree-hash.md` 재계산)
    - 하나라도 실패 → 재-scan
-   - non-git 환경: `envelope.generated_at` TTL만
+   - non-git 환경: identity 가드 + `envelope.generated_at` TTL 만
 
 2. audit-metrics.md 기준으로 지표 계산 (`payload.documents[].metrics` 사용):
 

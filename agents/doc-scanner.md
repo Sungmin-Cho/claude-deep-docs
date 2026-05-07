@@ -280,6 +280,7 @@ non-git 환경에서는 git fallback 사용:
 
 - `payload.provenance.is_git` (bool)
 - `payload.provenance.worktree_hash` (sha1 40-hex 또는 `"no-git"`) — `scan-filters/worktree-hash.md` 필터로 계산
+- `payload.provenance.path_check_enabled` (bool, **optional**) — `scan-filters/cli-whitelist.md` 의 `$PATH` 체크가 ON 일 때만 emit (`true`). OFF 일 때는 omit. 재사용 4-요소 규칙의 `prov.get("path_check_enabled", False) != bool(config.enable_path_check)` 비교에 사용.
 - `payload.documents[]` — 각 항목 `{ path, issues[], metrics }`
 - `payload.summary` — `{ total_issues, auto_fixable, audit_only }`
 
@@ -305,8 +306,12 @@ non-git 환경에서는 git fallback 사용:
 | `duplicate-block` | 중복 지침 블록 |
 | `size-warning` | 크기 초과 |
 
-garden/audit 실행 시 `.deep-docs/last-scan.json` 확인 (재사용 4-요소 규칙, envelope-aware):
+garden/audit 실행 시 `.deep-docs/last-scan.json` 확인 (재사용 규칙, envelope-aware, 5-요소 + 3 identity guards):
 
+0. **identity 가드** — deep-docs/last-scan envelope 인지 확인 (defense-in-depth):
+   - `envelope.producer === "deep-docs"`
+   - `envelope.artifact_kind === "last-scan"`
+   - `envelope.schema.name === "last-scan"`
 1. `schema_version === "1.0"` (top-level) **AND** `envelope.schema.version === "1.0"` — envelope wrapper + payload schema 양쪽 일치. 미스매치 시 재-scan
 2. `envelope.generated_at`이 현재 기준 10분 이내 (RFC 3339 → epoch 변환 후 비교)
 3. `envelope.git.head === git rev-parse HEAD` (git 환경만)
