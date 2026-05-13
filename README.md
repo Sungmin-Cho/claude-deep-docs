@@ -50,12 +50,12 @@ The scanner classifies every finding into one of two categories:
 | Moved/Renamed Paths | References that don't exist but have a `git log --follow` rename history | Update to new path automatically |
 | Stale Examples | CLI commands or env variables in docs that don't match `package.json` scripts or `.env.example` | Conditional auto-fix when exact replacement is known; code examples are audit-only |
 | Duplicated Instructions | Identical blocks (3+ lines, 100% match) repeated across multiple docs | Remove duplicates; near-duplicates are audit-only |
-| Size/Organization | CLAUDE.md/AGENTS.md >100, README.md >300, other docs/ >200 | Suggest splitting (proposal only, not automatic) |
 
 ### Audit-only (reported but not auto-fixed)
 
 | Rule | Description | Why Not Auto-fixed |
 |------|-------------|-------------------|
+| Size/Organization | CLAUDE.md/AGENTS.md >100, README.md >300, other docs/ >200 | Splitting requires structural judgment (section boundaries, external refs); reported as suggestion only |
 | Rule-Code Contradiction | Doc says "use snake_case" but 72% of code uses camelCase | Requires architecture judgment; high false-positive risk |
 | Coverage Gaps | Major modules in `src/` not mentioned anywhere in docs | "Major" is subjective |
 | Map vs Manual Ratio | Ratio of direct instructions vs external pointers/links | Optimal ratio varies per project |
@@ -65,7 +65,7 @@ The scanner classifies every finding into one of two categories:
 When you run `/deep-docs garden`, the agent:
 
 1. **Loads scan results** from `.deep-docs/last-scan.json` if it is less than 10 minutes old and the HEAD SHA matches the current commit. Otherwise re-runs the scan first.
-2. **Filters to auto-fixable issues** only (dead references, moved paths, confirmed stale examples, exact duplicates, size warnings).
+2. **Filters to auto-fixable issues** only (dead references, moved paths, confirmed stale examples, exact duplicates). Size warnings surface in the audit-only summary instead, since splitting needs structural judgment.
 3. **For each issue**, shows a diff and asks for confirmation:
    ```
    ## Fix 1/3: CLAUDE.md — Dead Reference

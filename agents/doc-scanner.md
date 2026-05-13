@@ -5,6 +5,16 @@ color: blue
 description: |
   프로젝트의 에이전트 지침 문서(CLAUDE.md, AGENTS.md 등)를 스캔하여
   코드와의 괴리를 탐지하는 에이전트.
+
+  <example>
+  Context: /deep-docs scan 이 호출되어 interactive 초기 스캔을 수행할 때 spawn
+  prompt: "프로젝트의 에이전트 지침 문서를 스캔하세요. 프로젝트 루트: /Users/foo/myproject. git 사용 가능: true. scan-rules.md 의 규칙을 따라 auto-fix / audit-only 를 분류하고 결과를 .deep-docs/last-scan.json 에 M3 envelope wrap 형태로 저장하세요."
+  </example>
+
+  <example>
+  Context: /deep-docs garden 또는 /deep-docs audit 이 .deep-docs/last-scan.json envelope reuse 가드(10분 TTL · git head · worktree_hash · path_check_enabled) 중 하나가 실패해 자동으로 재-scan 을 trigger 할 때 spawn
+  prompt: "재-scan: 기존 last-scan.json envelope 가드 실패. 동일 절차로 envelope wrap 후 .deep-docs/last-scan.json 에 atomic write. 호출자(garden/audit)는 본 결과를 즉시 소비함."
+  </example>
 whenToUse: |
   deep-docs 커맨드에서 자동으로 spawn된다. 직접 호출하지 않는다.
 tools:
@@ -119,7 +129,7 @@ rename 이력이 있으면 새 경로를 기록.
 - README.md: `>300`이면 경고
 - 기타 docs/: `>200`이면 경고
 
-분류: auto-fix (제안만, 자동 분리 안 함)
+분류: audit-only (분리 제안만 — garden 자동 수정 대상 아님. `payload.documents[].issues[].category: "audit-only"` 로 emit. garden 의 `current_value → suggested_value` diff 모델과도 부합하지 않으므로 audit-only 리포트에 표시)
 
 ### 8. 규칙-코드 모순 추론 (Audit-only)
 <!-- Step 8 → Rule 6(audit-only). 아키텍처 추론 필요, false positive 가능. -->
@@ -194,6 +204,15 @@ for _ in range(16):
     rb >>= 5
 print(ts_part + ''.join(reversed(r_chars)))         # 26 chars total
 PY
+
+# path_check_enabled: cli-whitelist Step 3 의 $PATH 체크 토글 (ON 일 때만 emit)
+# scan-filters/cli-whitelist.md 의 PATH_CHECK_ENABLED 환경변수와 일치
+# (OFF → omit, ON → "path_check_enabled": true, 한 줄 emit)
+if [ "${PATH_CHECK_ENABLED:-0}" = 1 ]; then
+    PATH_CHECK_EMIT='"path_check_enabled": true,'
+else
+    PATH_CHECK_EMIT=''
+fi
 ```
 
 non-git 환경에서는 git fallback 사용:
@@ -280,7 +299,7 @@ non-git 환경에서는 git fallback 사용:
 
 - `payload.provenance.is_git` (bool)
 - `payload.provenance.worktree_hash` (sha1 40-hex 또는 `"no-git"`) — `scan-filters/worktree-hash.md` 필터로 계산
-- `payload.provenance.path_check_enabled` (bool, **optional**) — `scan-filters/cli-whitelist.md` 의 `$PATH` 체크가 ON 일 때만 emit (`true`). OFF 일 때는 omit. 재사용 4-요소 규칙의 `prov.get("path_check_enabled", False) != bool(config.enable_path_check)` 비교에 사용.
+- `payload.provenance.path_check_enabled` (bool, **optional**) — `scan-filters/cli-whitelist.md` 의 `$PATH` 체크가 ON 일 때만 emit (`true`). OFF 일 때는 omit. **emit 방식**: Step 12-A 의 `PATH_CHECK_EMIT` 변수를 `payload.provenance` block 의 `worktree_hash` 라인 위에 삽입 — OFF 면 빈 문자열로 자연스럽게 omit, ON 면 `"path_check_enabled": true,` 한 줄 추가. 재사용 4-요소 규칙의 `prov.get("path_check_enabled", False) != bool(config.enable_path_check)` 비교에 사용.
 - `payload.documents[]` — 각 항목 `{ path, issues[], metrics }`
 - `payload.summary` — `{ total_issues, auto_fixable, audit_only }`
 

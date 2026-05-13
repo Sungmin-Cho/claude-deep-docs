@@ -25,7 +25,7 @@
 | Rule 2 (Moved/Renamed Paths) | Step 4 (이동 추적) |
 | Rule 3 (Stale Examples) | Step 3 (CLI 판정 — `scan-filters/cli-whitelist.md`) |
 | Rule 4 (Duplicated Instructions) | Step 6 (중복 탐지) |
-| Rule 5 (Size/Organization) | Step 7 (크기 검사) |
+| Rule 5 (Size/Organization) — audit-only | Step 7 (크기 검사) |
 | Rule 6 (Rule-Code Contradiction) — audit-only | Step 8 |
 | Rule 7 (Coverage Gap) — audit-only | Step 9 |
 | Rule 8 (Map vs Manual) — audit-only | Step 10 |
@@ -87,16 +87,17 @@
 
 수정: **조건부 auto-fix** — 완전 동일한 블록(3줄 이상 100% 일치)만 auto-fix 대상. 유사하지만 다른 블록은 audit-only.
 
+---
+
+## Audit-only (리포트에만 표시, 자동 수정 안 함)
+
 ### 5. 크기/구성 (Size/Organization)
 
 파일이 과도하게 큰 경우 (CLAUDE.md/AGENTS.md는 100줄, README.md는 300줄, 기타 docs/는 200줄 초과).
 
 탐지: strict `>` 부등호 — `CLAUDE.md/AGENTS.md > 100`, `README.md > 300`, `기타 docs/ > 200` (audit-metrics.md §1과 경계 일치)
-수정: 분리 제안 (자동 분리는 아님, 제안만).
-
----
-
-## Audit-only (리포트에만 표시, 자동 수정 안 함)
+이유: 분리는 구조적 판단(섹션 경계, 외부 참조 보존)이 필요하고, garden 의 `current_value → suggested_value` diff 모델과도 부합하지 않음. **garden 자동 수정 대상 아님** — `payload.documents[].issues[].category: "audit-only"` 로 emit.
+표시: ℹ️ 참고 — "크기 초과: {file} {N}줄 (한도 {limit}) — 분리 제안"
 
 ### 6. 규칙-코드 모순 추론
 
