@@ -10,7 +10,7 @@ argument-hint: "<scan|garden|audit>"
 
 ## Prerequisites
 
-`deep-docs-workflow` 스킬을 로드합니다.
+이 커맨드는 `deep-docs-workflow` 스킬과 함께 동작합니다 (Claude Code 가 자동 로드).
 
 ## Auto-create .deep-docs/ (최초 실행 시)
 
@@ -78,12 +78,13 @@ scan 결과를 기반으로 자동 수정합니다.
    - 하나라도 실패 → 재-scan (legacy `schema_version: 2` numeric 형식 포함)
    - non-git 환경: identity 가드 + `envelope.generated_at` TTL + `payload.provenance.path_check_enabled` 비교 (git 환경과 무관하게 config 토글 무효화)
 
-2. auto-fix 가능 항목만 추출 — `payload.documents[].issues[]` 기준 (scan-rules.md):
-   - 죽은 참조
-   - 이동/리네임된 경로
-   - 오래된 예시/명령어
-   - 중복 지침 블록
-   - 크기 초과 (제안만)
+2. auto-fix 가능 항목만 추출 — `payload.documents[].issues[].category === "auto-fix"` 기준 (scan-rules.md):
+   - 죽은 참조 (`type: "dead-reference"`)
+   - 이동/리네임된 경로 (`type: "moved-path"`)
+   - 오래된 예시/명령어 (`type: "stale-example"`)
+   - 중복 지침 블록 (`type: "duplicate-block"`)
+
+   `size-warning` 은 `category: "audit-only"` 로 emit 되어 Step 4 (참고) 에 표시 — garden 자동 수정 대상 아님 (분리는 구조적 판단 필요).
 
 3. 각 항목을 순서대로 처리:
 
@@ -94,20 +95,23 @@ scan 결과를 기반으로 자동 수정합니다.
    - `{current_value}` → `{suggested_value}` ({evidence})
    ```
    
-   b. AskUserQuestion으로 5지선다:
+   b. AskUserQuestion 1차 prompt (4지선다 — `AskUserQuestion` schema 의 `options` `maxItems: 4` 준수):
    - **(A) 적용**
    - **(B) 건너뜀 (이번만)**
    - **(C) 건너뜀 + 기록** (`.deep-docs/garden-ignored.json`에 signature 저장)
+   - **(Batch) 일괄 처리** — 동일 type 전체에 대한 결정을 2차 prompt 에서 받음
+
+   사용자가 **(Batch)** 를 선택하면 2차 AskUserQuestion (2지선다) 로 분기:
    - **(D) 이하 모두 적용 — "{한국어 레이블}" 일괄 수락** (현재 세션 + 동일 type)
    - **(E) 이하 모두 건너뜀 — "{한국어 레이블}" 일괄 거부** (현재 세션 + 동일 type)
-   
-   c. A/D 선택 → Edit tool로 수정 적용  
-      C 선택 → `.deep-docs/garden-ignored.json` append + skip  
+
+   c. A/D 선택 → Edit tool로 수정 적용
+      C 선택 → `.deep-docs/garden-ignored.json` append + skip
       B/E 선택 → skip
-   
+
    **세션 정의**: 단일 `/deep-docs garden` 호출 (시작 ~ 종료) 내에서만 (D)/(E) 선택 유지. 호출 종료 시 in-memory state 소실 (단, C만 영구 기록).
 
-   **세션 state 로직**:
+   **세션 state 로직** (1차 4-option + Batch 2차 sub-prompt):
    ```python
    # garden 진입 시 초기화
    session_batch_accept: set[str] = set()   # (D)로 수락된 type 집합
@@ -124,7 +128,12 @@ scan 결과를 기반으로 자동 수정합니다.
        if t in session_batch_reject:
            continue
 
-       choice = ask_user_question(5_options)
+       # 1차 AskUserQuestion — 4 options (maxItems: 4 한계 준수)
+       choice = ask_user_question(["A", "B", "C", "Batch"])
+       if choice == "Batch":
+           # 2차 AskUserQuestion — 2 options (D 일괄 수락 / E 일괄 거부)
+           choice = ask_user_question(["D", "E"])
+
        if choice == "A":
            apply_edit(issue)
        elif choice == "B":
@@ -138,11 +147,12 @@ scan 결과를 기반으로 자동 수정합니다.
            session_batch_reject.add(t)
    ```
 
-   **플랫폼 제약**: `AskUserQuestion`이 5 옵션 미지원이면 fallback — (A)/(B)/(C)/(Batch) 4지선다로 축소 후 Batch 선택 시 별도 질문으로 (D)/(E) 구분.
+   **플랫폼 근거**: `AskUserQuestion` 의 `options` schema 는 `minItems: 2, maxItems: 4`. 5지선다 단일 prompt 은 platform 한계로 호출 불가하므로, 1차 4-option (Batch fan-out) + 2차 2-option (D/E) 의 두-단계 구조가 **canonical path** (런타임 fallback 이 아님).
 
 4. audit-only 항목은 마지막에 참고로 표시:
    ```
    ## 참고 (자동 수정 대상 아님)
+   - ℹ️ 크기 초과: README.md 320줄 (한도 300) — 분리 제안
    - ℹ️ 규칙-코드 모순: snake_case 규칙이나 코드 72%가 camelCase
    - ℹ️ 미문서화 모듈: src/payments/
    ```

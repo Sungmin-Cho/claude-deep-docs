@@ -9,8 +9,8 @@
     "generated_at": "2026-05-07T10:00:00Z",
     "schema": { "name": "last-scan", "version": "1.0" },
     "git": {
-      "head": "3840da993e96c57c07ba569b02a8ab0129e76f8a",
-      "branch": "feat/m3-envelope-adoption",
+      "head": "abc1234",
+      "branch": "main",
       "dirty": false
     },
     "provenance": {
