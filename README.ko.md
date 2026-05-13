@@ -117,7 +117,7 @@ Deep Docs는 별도의 설정 파일이 필요 없습니다. `.deep-docs/` 디�
   "schema_version": "1.0",
   "envelope": {
     "producer": "deep-docs",
-    "producer_version": "1.2.0",
+    "producer_version": "1.2.1",
     "artifact_kind": "last-scan",
     "run_id": "01KR0J7WBXJS57PBM04MYPHENX",
     "generated_at": "2026-05-07T14:30:00Z",

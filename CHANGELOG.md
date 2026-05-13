@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.2.1] - 2026-05-13
+
+### Fixed
+Plugin-dev validator round-1 followup — 8 fixes addressing 4 MEDIUM + 4 LOW findings on v1.2.0. No schema change; v1.2.0 envelope contract preserved (cross-plugin consumers unaffected).
+
+- **M-1**: `size-warning` 을 `audit-only` 로 재분류 — garden `current_value → suggested_value` diff template 과 부합하지 않는 UX 모순 제거. `payload.documents[].issues[].category: "audit-only"` 로 emit. 5개 파일(commands · agent · scan-rules · README · README.ko) 동기화.
+- **M-2**: `agents/doc-scanner.md` Step 12-A bash recipe 가 `path_check_enabled` 를 조건부로 emit — `PATH_CHECK_EMIT` 변수 추가. cli-whitelist `$PATH` 토글 ON 일 때 envelope reuse-guard silent corruption 차단.
+- **M-3**: `doc-scanner` agent description 에 `<example>` 블록 2개 (initial scan + envelope-guard-failed re-scan) 추가. `whenToUse` internal-spawn-only 정책 보존.
+- **M-4**: Garden 의 5지선다 prompt 을 **canonical 4+sub-prompt** 구조로 재설계 — `AskUserQuestion` schema 의 `options.maxItems: 4` 한계 준수. 1차 `(A)/(B)/(C)/(Batch)` + Batch 선택 시 2차 `(D)/(E)`.
+- **L-1**: `plugin.json` 에 `repository` 필드 추가.
+- **L-3**: `tests/fixtures/sample-last-scan.json` `envelope.git.head` 를 7-hex `abc1234` 로 통일 (README + agent 예시와 일치).
+- **L-4**: `SKILL.md` garden Step 3.b 를 4+sub-prompt 구조로 동기화 (M-4 와 짝).
+- **L-5**: `commands/deep-docs.md` Prerequisites 문구 정정 — 스킬은 Claude Code 가 자동 로드.
+
+L-2 (README docs/ gitignore note) 의도적 생략 — `.gitignore` 인라인 주석이 이미 동일 정보 제공.
+
+### Verification
+- `bash scripts/verify-fixes.sh` — Passed: 45, Failed: 0
+- `node scripts/validate-envelope-emit.js` — envelope contract pass
+
 ## [1.2.0] - 2026-05-07
 
 ### Changed

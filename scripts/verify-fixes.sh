@@ -137,17 +137,17 @@ check "worktree-hash.md: 절대 금지 educational warning present" \
   "grep -q '절대 금지' skills/deep-docs-workflow/references/scan-filters/worktree-hash.md"
 
 # ===== Version sync =====
-check "plugin.json version = 1.2.0" \
-  "grep -q '\"version\":\s*\"1.2.0\"' .claude-plugin/plugin.json"
+check "plugin.json version = 1.2.1" \
+  "grep -q '\"version\":\s*\"1.2.1\"' .claude-plugin/plugin.json"
 
-check "package.json version = 1.2.0" \
-  "grep -q '\"version\":\s*\"1.2.0\"' package.json"
+check "package.json version = 1.2.1" \
+  "grep -q '\"version\":\s*\"1.2.1\"' package.json"
 
 check "package.json type = module" \
   "grep -Eq '\"type\":\s*\"module\"' package.json"
 
-check "CHANGELOG has [1.2.0] entry" \
-  "grep -q '\[1.2.0\]' CHANGELOG.md"
+check "CHANGELOG has [1.2.1] entry" \
+  "grep -q '\[1.2.1\]' CHANGELOG.md"
 
 # ===== M3 envelope adoption =====
 check "envelope fixture exists" \
