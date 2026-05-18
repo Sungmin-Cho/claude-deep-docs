@@ -181,7 +181,7 @@ git rev-parse --abbrev-ref HEAD                     # branch
 # 부재하므로 cwd-relative read 로는 해결 불가. 매 릴리스마다 deep-docs/.claude-plugin/plugin.json
 # 의 version 과 일치하는 literal 을 envelope.producer_version 에 직접 emit 한다.
 # scripts/verify-fixes.sh 가 literal ↔ plugin.json.version 동기 검증 (release lint).
-producer_version="1.2.1"   # ← deep-docs plugin release literal (sync with .claude-plugin/plugin.json)
+producer_version="1.3.0"   # ← deep-docs plugin release literal (sync with .claude-plugin/plugin.json)
 
 # tool_versions
 node --version
@@ -230,7 +230,7 @@ non-git 환경에서는 git fallback 사용:
   "schema_version": "1.0",
   "envelope": {
     "producer": "deep-docs",
-    "producer_version": "1.2.1",
+    "producer_version": "1.3.0",
     "artifact_kind": "last-scan",
     "run_id": "01KR0J7WBXJS57PBM04MYPHENX",
     "generated_at": "2026-05-07T10:00:00Z",

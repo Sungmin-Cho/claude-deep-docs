@@ -238,7 +238,7 @@ hash2=$(compute_worktree_hash)
 ## 통합 지점
 
 - **Step 12 (doc-scanner.md)**: 아티팩트 저장 시 `provenance.worktree_hash`로 기록.
-- **scan 재사용 판정 (commands/deep-docs.md)**: garden/audit 진입 시 본 필터 재실행 후 저장값과 비교.
+- **scan 재사용 판정 (skills/deep-docs/SKILL.md)**: garden/audit 진입 시 본 필터 재실행 후 저장값과 비교.
 
 ## 버전
 
