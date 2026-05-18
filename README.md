@@ -4,6 +4,10 @@
 
 A document gardening agent that validates freshness and auto-repairs agent instruction files (CLAUDE.md, AGENTS.md, and project docs).
 
+## Codex Compatibility
+
+This release includes native Codex plugin metadata in `.codex-plugin/plugin.json` and a Codex project guide in `AGENTS.md`. The Claude Code manifest remains in `.claude-plugin/plugin.json`, and the unchanged `claude-deep-suite` marketplace namespace lets existing installs keep their plugin keys while Codex reads the suite's `.agents/plugins/marketplace.json`.
+
 > "Too many instructions stop being instructions. They rot fast."
 > — OpenAI, Harness Engineering
 

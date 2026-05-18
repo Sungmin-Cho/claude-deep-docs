@@ -1,0 +1,29 @@
+# deep-docs - Codex Project Guide
+
+Document gardening agent for agent instruction files and project docs. The repo
+keeps Claude Code compatibility and exposes Codex-native manifest metadata.
+
+Current version: 1.3.1.
+
+## Runtime Surfaces
+
+- Codex manifest: `.codex-plugin/plugin.json`
+- Claude Code manifest: `.claude-plugin/plugin.json`
+- User-invocable skill: `skills/deep-docs/SKILL.md`
+- Workflow reference skill: `skills/deep-docs-workflow/`
+- Scanner agent: `agents/doc-scanner.md`
+- Scripts: `scripts/validate-envelope-emit.js`, `scripts/verify-fixes.sh`
+
+Scan artifacts such as `.deep-docs/last-scan.json` belong to target projects,
+not this plugin repo, unless they are committed test fixtures.
+
+## Verification
+
+```bash
+node -e "JSON.parse(require('fs').readFileSync('.codex-plugin/plugin.json','utf8'))"
+npm run validate:envelope
+npm run verify:fixes
+```
+
+After a release, update both suite marketplace manifests in
+`/Users/sungmin/Dev/claude-plugins/deep-suite/`.

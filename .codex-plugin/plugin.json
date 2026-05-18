@@ -1,0 +1,37 @@
+{
+  "name": "deep-docs",
+  "version": "1.3.1",
+  "description": "Document gardening agent for fresh agent instructions and project docs",
+  "author": {
+    "name": "Sungmin-Cho"
+  },
+  "repository": "https://github.com/Sungmin-Cho/claude-deep-docs.git",
+  "license": "MIT",
+  "keywords": [
+    "documentation",
+    "gardening",
+    "claude-md",
+    "agents-md",
+    "freshness"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Deep Docs",
+    "shortDescription": "Scan and repair stale project docs",
+    "longDescription": "Scan, audit, and garden agent instruction files and project docs, separating mechanical fixes from audit-only findings.",
+    "developerName": "Sungmin-Cho",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "$deep-docs:deep-docs scan",
+      "$deep-docs:deep-docs garden",
+      "$deep-docs:deep-docs audit"
+    ],
+    "brandColor": "#4B5563",
+    "screenshots": []
+  }
+}

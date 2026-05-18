@@ -4,6 +4,10 @@
 
 에이전트 지침 문서(CLAUDE.md, AGENTS.md 등)의 신선도를 검증하고 자동 정비하는 가드닝 에이전트.
 
+## Codex 호환성
+
+이번 릴리스는 `.codex-plugin/plugin.json` Codex 네이티브 플러그인 메타데이터와 `AGENTS.md` Codex 프로젝트 가이드를 포함합니다. Claude Code 매니페스트는 `.claude-plugin/plugin.json`에 그대로 유지되며, 기존 `claude-deep-suite` marketplace namespace를 유지해 기존 설치 키를 보존하면서 Codex는 suite의 `.agents/plugins/marketplace.json`을 읽습니다.
+
 > "지침이 너무 많으면 지침이 되지 않는다. 순식간에 망가진다."
 > — OpenAI, Harness Engineering
 

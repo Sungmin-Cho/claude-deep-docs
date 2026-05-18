@@ -28,13 +28,13 @@ To check the current version: `jq -r .version .claude-plugin/plugin.json`
 
 Update the following in `/Users/sungmin/Dev/claude-plugins/deep-suite/`:
 
-- **`.claude-plugin/marketplace.json`** — under the `deep-docs` entry: `sha` = full 40-character merge commit hash on the new `main`; description = one-line headline summary.
+- **`.claude-plugin/marketplace.json`** and **`.agents/plugins/marketplace.json`** — under the `deep-docs` entry: `sha` = full 40-character merge commit hash on the new `main`; description = one-line headline summary.
 - **`README.md`** / **`README.ko.md`** — the `deep-docs` row in the Plugins table and any narrative sections that reference the version.
 
 After editing:
 ```bash
 cd /Users/sungmin/Dev/claude-plugins/deep-suite
-git add .claude-plugin/marketplace.json README.md README.ko.md
+git add .claude-plugin/marketplace.json .agents/plugins/marketplace.json README.md README.ko.md
 git commit -m "chore: bump deep-docs to vX.Y.Z — <one-line summary>"
 git push
 ```
@@ -42,7 +42,7 @@ git push
 ### 2. Update deep-docs CHANGELOG (both languages, required)
 
 - Add a new version entry to both `CHANGELOG.md` and `CHANGELOG.ko.md`
-- Bump the version in `.claude-plugin/plugin.json` and `package.json`
+- Bump the version in `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `package.json`
 - If the `last-scan` schema changed, bump `producer_version` in the envelope (it's a literal sync with `plugin.json.version`, enforced by `scripts/verify-fixes.sh`)
 
 **Do NOT inline release notes in this CLAUDE.md** — CHANGELOG is the single source of truth.
@@ -53,7 +53,8 @@ git push
 
 ```
 deep-docs/
-├── .claude-plugin/plugin.json          # plugin manifest
+├── .claude-plugin/plugin.json
+├── .codex-plugin/plugin.json          # plugin manifest
 ├── package.json                         # `type: "module"`, npm scripts (validate:envelope, verify:fixes)
 ├── agents/
 │   └── doc-scanner.md                  # spawned subagent — Steps 1–12 (discover, extract, validate,
