@@ -59,10 +59,10 @@ deep-docs/
 │   └── doc-scanner.md                  # spawned subagent — Steps 1–12 (discover, extract, validate,
 │                                        # track, freshen, dedup, size-check, rules, coverage, ratio,
 │                                        # emit, save to M3 envelope)
-├── commands/
-│   └── deep-docs.md                    # /deep-docs scan|garden|audit (allowed tools: Read, Write,
-│                                        # Edit, Bash, Glob, Grep, Task, AskUserQuestion)
 ├── skills/
+│   ├── deep-docs/
+│   │   └── SKILL.md                    # /deep-docs scan|garden|audit — user-invocable entry skill
+│   │                                    # (cross-platform: Claude Code slash + Codex/Copilot/Gemini Skill())
 │   └── deep-docs-workflow/
 │       ├── SKILL.md                    # core workflow reference (auto-loaded, not user-invocable)
 │       └── references/
@@ -73,7 +73,7 @@ deep-docs/
 │                                        # freshness-timestamp)
 ├── scripts/
 │   ├── validate-envelope-emit.js       # envelope schema self-test (npm run validate:envelope)
-│   └── verify-fixes.sh                 # release-lint (45 grep checks; hermetic, no install)
+│   └── verify-fixes.sh                 # release-lint (43 grep checks; hermetic, no install)
 ├── tests/
 │   └── fixtures/
 │       └── sample-last-scan.json       # canonical M3-envelope-wrapped payload
@@ -236,10 +236,10 @@ Always emitting or always omitting breaks the garden reuse-guard: config toggle 
 
 ```bash
 npm run validate:envelope     # node scripts/validate-envelope-emit.js — envelope contract self-test
-npm run verify:fixes          # bash scripts/verify-fixes.sh — 45 grep-based release-lint checks
+npm run verify:fixes          # bash scripts/verify-fixes.sh — 43 grep-based release-lint checks
 ```
 
-There is no `npm test` integration runner — tests are fixture-based (sample envelope validated against schema) plus the `verify-fixes.sh` grep matrix. Latest release shipped at "Passed: 45, Failed: 0".
+There is no `npm test` integration runner — tests are fixture-based (sample envelope validated against schema) plus the `verify-fixes.sh` grep matrix. Latest release (v1.3.0) shipped at "Passed: 43, Failed: 0" (two `allowed-tools` assertions removed in the command→skill conversion).
 
 ---
 

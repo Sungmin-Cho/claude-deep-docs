@@ -1,16 +1,32 @@
 ---
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Task, AskUserQuestion
-description: 에이전트 지침 문서의 신선도 검증(scan), 자동 정비(garden), 품질 리포트(audit)를 수행합니다.
-argument-hint: "<scan|garden|audit>"
+name: deep-docs
+description: Use when the user wants to scan, garden, or audit project agent-instruction documents (CLAUDE.md / AGENTS.md / README.md). Triggers on `/deep-docs`, "scan documents", "garden CLAUDE.md", "audit docs", "document health", "stale docs", "문서 정비", "문서 스캔", "문서 감사", "문서 가드닝". Detects dead refs, moved paths, duplicate blocks, stale examples; auto-fixes via 4-option AskUserQuestion (apply / skip / skip+record / batch); reports audit-only items separately.
+user-invocable: true
 ---
 
-# /deep-docs — Document Gardening
+# deep-docs — Document Gardening
 
 에이전트 지침 문서(CLAUDE.md, AGENTS.md 등)의 건강 상태를 관리합니다.
 
+## Invocation
+
+이 스킬은 두 가지 경로로 호출됩니다 — 어느 쪽이든 본 SKILL §"Subcommands" 절차를 그대로 실행합니다:
+
+1. **Claude Code 슬래시** — 사용자가 `/deep-docs [scan|garden|audit]` 입력 (skill 의 `user-invocable: true` 가 슬래시 진입을 허용).
+2. **타 에이전트 / Codex / SDK** — `Skill({ skill: "deep-docs:deep-docs", args: "scan|garden|audit" })` 형태로 명시 invoke (Codex / Copilot CLI / Gemini CLI cross-platform 표준 경로).
+
+두 경로 모두 args 는 동일한 토큰 문자열로 전달됩니다.
+
+## Inputs (skill args)
+
+- `scan` / `garden` / `audit` 중 하나 — 서브커맨드 토큰.
+- args 가 비어 있거나 토큰이 인식되지 않으면 본 SKILL §"인수 없이 실행한 경우" 의 AskUserQuestion 분기로 진입.
+
 ## Prerequisites
 
-이 커맨드는 `deep-docs-workflow` 스킬과 함께 동작합니다 (Claude Code 가 자동 로드).
+이 스킬은 `deep-docs-workflow` 스킬과 함께 동작합니다 (Claude Code 가 description 매칭으로 자동 로드). workflow skill 의 `references/scan-rules.md` (scan 항목 정의) 와 `references/audit-metrics.md` (audit 지표 정의) 가 본 스킬의 검증/지표 정의를 담고 있습니다.
+
+**Cross-platform self-containment**: Claude Code 에서는 workflow skill 의 references 가 description 매칭으로 자동 로드됩니다. 다만 Codex / Copilot CLI / Gemini CLI 등 타 플랫폼에서 `Skill()` 호출 시 sibling skill 의 auto-load 보장이 약할 수 있으므로, 본 SKILL §"Subcommands" 본문은 **의도적으로 self-contained** — 5-요소 envelope 가드, garden 4+2-option session state, `garden-ignored.json` 스키마 등을 인라인으로 보존합니다. 이는 `deep-docs-workflow` 와의 **의도적 duplication** 이며, 변경 시 양쪽 (본 SKILL + workflow skill) 동기화가 필요합니다.
 
 ## Auto-create .deep-docs/ (최초 실행 시)
 
@@ -255,7 +271,7 @@ scan 결과를 기반으로 자동 수정합니다.
 
 ## 인수 없이 실행한 경우
 
-`/deep-docs`를 인수 없이 실행하면:
+`deep-docs`를 인수 없이 실행하면:
 AskUserQuestion으로 질문: "scan, garden, audit 중 어떤 작업을 수행할까요?"
 - (A) scan — 문서 건강 스캔
 - (B) garden — 자동 정비

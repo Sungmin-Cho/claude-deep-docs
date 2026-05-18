@@ -23,20 +23,17 @@ check() {
 }
 
 # ===== Agent tooling (C-2, C-3) =====
+# v1.3.0: command→skill conversion. Skills have no `allowed-tools` frontmatter,
+# so the two former allowed-tools assertions are removed. The Task pseudo-code
+# checks remain, retargeted at the new entry skill.
 check "doc-scanner has Write tool" \
   "grep -Eq '^\s*-\s*Write\b' agents/doc-scanner.md"
 
-check "command uses Task (not Agent) in allowed-tools" \
-  "grep -Eq '^allowed-tools:.*\bTask\b' commands/deep-docs.md"
+check "skill body uses Task(subagent_type=...) pseudo-code" \
+  "grep -q 'Task(subagent_type=' skills/deep-docs/SKILL.md"
 
-check "command does NOT use Agent in allowed-tools" \
-  "! grep -Eq '^allowed-tools:.*\bAgent\b' commands/deep-docs.md"
-
-check "command body uses Task(subagent_type=...) pseudo-code" \
-  "grep -q 'Task(subagent_type=' commands/deep-docs.md"
-
-check "no Agent(doc-scanner): pseudo-code remains" \
-  "! grep -q 'Agent(doc-scanner):' commands/deep-docs.md"
+check "no Agent(doc-scanner): pseudo-code remains in entry skill" \
+  "! grep -q 'Agent(doc-scanner):' skills/deep-docs/SKILL.md"
 
 # ===== Scan-filters integration =====
 check "scan-rules references scan-filters directory" \
@@ -78,14 +75,14 @@ check "envelope schema.name == artifact_kind identity in doc-scanner" \
 check "worktree_hash in doc-scanner" \
   "grep -q 'worktree_hash' agents/doc-scanner.md"
 
-check "worktree_hash in commands" \
-  "grep -q 'worktree_hash' commands/deep-docs.md"
+check "worktree_hash in entry skill" \
+  "grep -q 'worktree_hash' skills/deep-docs/SKILL.md"
 
-check "worktree_hash in SKILL.md" \
+check "worktree_hash in workflow SKILL.md" \
   "grep -q 'worktree_hash' skills/deep-docs-workflow/SKILL.md"
 
 check "4-factor reuse rule documented (envelope-aware)" \
-  "grep -Eq 'envelope.schema.version|envelope\\.generated_at|envelope\\.git\\.head' commands/deep-docs.md skills/deep-docs-workflow/SKILL.md"
+  "grep -Eq 'envelope.schema.version|envelope\\.generated_at|envelope\\.git\\.head' skills/deep-docs/SKILL.md skills/deep-docs-workflow/SKILL.md"
 
 # ===== Freshness & audit (H-4, M-1, M-2, M-3) =====
 check "freshness_score example uses valid scale (not 6) — all runtime files" \
@@ -108,11 +105,11 @@ check "old 'reference'/'suggestion' fields not in current example" \
   "! grep -Eq '\"reference\":\s*\"src/' agents/doc-scanner.md"
 
 # ===== Garden UX (M-8, M-9) =====
-check "garden-ignored.json documented" \
-  "grep -q 'garden-ignored.json' commands/deep-docs.md"
+check "garden-ignored.json documented in entry skill" \
+  "grep -q 'garden-ignored.json' skills/deep-docs/SKILL.md"
 
-check "garden 5지선다 options A-E present (all 5)" \
-  "grep -c '(A) 적용\|(B) 건너뜀\|(C) 건너뜀.*기록\|(D) 이하 모두 적용\|(E) 이하 모두 건너뜀' commands/deep-docs.md | awk '{exit \$1 < 5}'"
+check "garden 5지선다 options A-E present (all 5) in entry skill" \
+  "grep -c '(A) 적용\|(B) 건너뜀\|(C) 건너뜀.*기록\|(D) 이하 모두 적용\|(E) 이하 모두 건너뜀' skills/deep-docs/SKILL.md | awk '{exit \$1 < 5}'"
 
 # ===== Housekeeping (L-1~L-5) =====
 check "package.json has private: true" \
@@ -137,17 +134,17 @@ check "worktree-hash.md: 절대 금지 educational warning present" \
   "grep -q '절대 금지' skills/deep-docs-workflow/references/scan-filters/worktree-hash.md"
 
 # ===== Version sync =====
-check "plugin.json version = 1.2.1" \
-  "grep -q '\"version\":\s*\"1.2.1\"' .claude-plugin/plugin.json"
+check "plugin.json version = 1.3.0" \
+  "grep -q '\"version\":\s*\"1.3.0\"' .claude-plugin/plugin.json"
 
-check "package.json version = 1.2.1" \
-  "grep -q '\"version\":\s*\"1.2.1\"' package.json"
+check "package.json version = 1.3.0" \
+  "grep -q '\"version\":\s*\"1.3.0\"' package.json"
 
 check "package.json type = module" \
   "grep -Eq '\"type\":\s*\"module\"' package.json"
 
-check "CHANGELOG has [1.2.1] entry" \
-  "grep -q '\[1.2.1\]' CHANGELOG.md"
+check "CHANGELOG has [1.3.0] entry" \
+  "grep -q '\[1.3.0\]' CHANGELOG.md"
 
 # ===== M3 envelope adoption =====
 check "envelope fixture exists" \

@@ -38,7 +38,7 @@ user-invocable: false
 2. auto-fix 가능 항목만 추출 (`payload.documents[].issues[].category === "auto-fix"`). `size-warning` 은 `audit-only` 로 분류되어 Step 4 에 표시.
 3. 각 항목에 대해:
    a. 수정 내용을 diff 형태로 사용자에게 보여줌
-   b. AskUserQuestion 1차 prompt 4지선다 (`maxItems: 4` 준수): (A) 적용 · (B) 건너뜀 · (C) 건너뜀+기록 · (Batch) → 2차 AskUserQuestion (D) 일괄 적용 / (E) 일괄 거부. 자세한 옵션 동작 및 세션 state 는 `commands/deep-docs.md` Step 3.b 참조.
+   b. AskUserQuestion 1차 prompt 4지선다 (`maxItems: 4` 준수): (A) 적용 · (B) 건너뜀 · (C) 건너뜀+기록 · (Batch) → 2차 AskUserQuestion (D) 일괄 적용 / (E) 일괄 거부. 자세한 옵션 동작 및 세션 state 는 `skills/deep-docs/SKILL.md` Step 3.b 참조.
    c. A/D 선택 → Edit tool로 수정 적용; C 선택 → `.deep-docs/garden-ignored.json` 기록; B/E 선택 → skip
 4. audit-only 항목은 "참고: 다음 항목은 자동 수정 대상이 아닙니다"로 표시 (`size-warning` 포함)
 5. 수정 요약 출력

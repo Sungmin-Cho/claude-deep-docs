@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0] - 2026-05-18
+
+### Changed
+- **UX (non-breaking)**: `/deep-docs` 는 이제 `user-invocable: true` skill 입니다 (기존 slash command 제거). Claude Code 사용자는 그대로 `/deep-docs scan|garden|audit` 입력 → 슬래시→스킬 자동 매핑으로 동일 워크플로우 실행. Codex / Copilot CLI / Gemini CLI 사용자는 `Skill({ skill: "deep-docs:deep-docs", args: "scan|garden|audit" })` 로 동일 워크플로우 호출 가능.
+- **Files**: `commands/deep-docs.md` 제거, `skills/deep-docs/SKILL.md` 추가 (entry skill, `user-invocable: true`). 기존 `skills/deep-docs-workflow/` 및 `agents/doc-scanner.md` 변경 없음.
+
+### Rationale
+- Slash command 는 Claude Code 전용. Skill 은 cross-platform. 본 PR 은 deep-suite 전체 (deep-evolve, deep-wiki, deep-review, deep-work) command→skill 마이그레이션의 파일럿.
+
+### Migration
+- 사용자 작업 불필요 — Claude Code 의 `/deep-docs ...` 와 Codex/Copilot/Gemini 의 Skill invocation 모두 동일 워크플로우로 동작.
+
 ## [1.2.1] - 2026-05-13
 
 ### Fixed
