@@ -249,7 +249,7 @@ legacy `1.0` payload 아티팩트는 가드 불일치로 **즉시 재-scan**(sel
 5. **길이 가드 — 목표 vs 차단 분리** `[R1:F3,F11][R2:F3 현실성]`: draft **목표** = CLAUDE ≤100줄 / AGENTS ≤100줄+≤32KiB / ARCH ≤300줄.
    - **100줄 초과는 authoring 실패가 아니다** — size-warning(audit-only, **비차단**)으로 보고만 된다. doc-author 는 100줄을 *지향*하되 과압축으로 정보를 잃지 않는다(실제 프로젝트 CLAUDE.md 는 흔히 150~200줄+; 100줄 hard target 은 비현실적이라 R2 지적).
    - **줄 수에는 hard fail 없음 — audit 과 대칭** `[R3:🟡-3]`: CLAUDE 줄 수가 200(공식 권고)을 넘어도 doc-author 는 **압축을 *시도*** 하되, 그래도 초과하면 **강제 분할이 아니라 size-warning(비차단)으로 보고만** 한다(audit-metrics 의 `>200 = score 4` "허용 저점수"와 대칭; 이 repo 자신의 276줄 CLAUDE.md 가 audit score-4 로 통과하는 것과 모순 없음).
-   - **진짜 hard fail 은 AGENTS 32 KiB 만**: Codex 런타임이 32 KiB 초과분을 **잘라** 기능적 손실이 나므로, 이 경계만 doc-author 가 분할/중첩 분산을 강제 제안.
+   - **진짜 hard fail 은 AGENTS 32 KiB 만 — garden 이 Write 직전 정확 강제** `[R5:🟡 byte-at-write]`: Codex 런타임이 32 KiB 초과분을 **잘라** 기능적 손실이 나므로 이 경계만 강제. doc-author 의 byte 추정은 heuristic(soft)일 뿐이고, **실제 Write 는 garden 이 하므로 garden 이 agents-md Write 직전 `draft_body` 의 UTF-8 byte 길이를 정확히 계산**(garden 은 Bash 가능 — multibyte/long-line draft 가 heuristic 을 빠져나가도 여기서 포착)해 32 KiB 초과 시 fail-closed(분할/중첩 분산 제안). oversized/multibyte draft fixture 로 검증.
 6. **non-git**: missing/thin 탐지는 파일 존재·크기·섹션 기반이라 git 무관 동작.
 7. **멱등성** `[R1:F8]`: garden 진입 시 authoring 항목 스냅샷 고정; last-scan 삭제는 **세션 종료 시 1회**. 재실행 시 해소된 gap 은 사라짐.
 8. **심볼릭 링크 자동 생성 금지**: 공존 전략(D7)의 심볼릭 링크는 Windows 호환성 위험 → 제안만, 승인 후 생성. 기본은 `@import`/참조 포인터.

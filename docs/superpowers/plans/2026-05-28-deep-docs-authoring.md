@@ -324,7 +324,7 @@ git commit -m "feat(authoring): add authoring-rules references (CLAUDE/AGENTS/AR
 
 - [ ] **Step 1: deep-docs/SKILL.md에 authoring sub-flow 추가 (spec §4.4/§5/§6)**
 
-`skills/deep-docs/SKILL.md`의 `### /deep-docs garden` 절차에 authoring 분기 추가: 진입 시 `payload.gaps[]` 스냅샷 고정 → 치환 항목은 기존 4+2 옵션(불변) → authoring 항목은 sub-flow: doc-author spawn(Task subagent_type=doc-author, authoring_spec 전달) → 구조화 result 수신 → ① **garden 이 TOCTOU baseline 소유 (doc-author 아님 — Bash 없음)** `[R3-plan:🔴 create-TOCTOU][R3-plan-R4:🔴 base_hash]`: garden 이 doc-author spawn **전** baseline 캡처(restructure: `git hash-object target` / create: 부재 기록), Write **직전** 재계산·`lstat` 비교 — restructure hash 불일치(변경)·create 존재/심볼릭이면 fail-closed("이미 존재/변경 — 재scan/restructure 전환?" 승인) → ② removal_candidates per-removal 승인(AskUserQuestion 적용/수정요청/거부) → ③ 미승인 removal을 anchor 위치 재삽입 → ④ preserved_blocks가 draft_body에 존재 확인(누락 fail-closed) → ⑤ **target_path 재정규화**(절대/traversal/symlink/ignored 거부, doc_kind↔path 매핑) → garden이 Write → cross-doc 포인터/공존 제안(§7.4 조건). 세션 종료 시 1회 last-scan 삭제(≥1 변경). scan 리포트에 authoring 집계 추가. 재사용 가드의 `envelope.schema.version` payload 측 `"1.0"`→`"1.1"`(top-level `schema_version` 유지) — `:90`, `:219`.
+`skills/deep-docs/SKILL.md`의 `### /deep-docs garden` 절차에 authoring 분기 추가: 진입 시 `payload.gaps[]` 스냅샷 고정 → 치환 항목은 기존 4+2 옵션(불변) → authoring 항목은 sub-flow: doc-author spawn(Task subagent_type=doc-author, authoring_spec 전달) → 구조화 result 수신 → ① **garden 이 TOCTOU baseline 소유 (doc-author 아님 — Bash 없음)** `[R3-plan:🔴 create-TOCTOU][R3-plan-R4:🔴 base_hash]`: garden 이 doc-author spawn **전** baseline 캡처(restructure: `git hash-object target` / create: 부재 기록), Write **직전** 재계산·`lstat` 비교 — restructure hash 불일치(변경)·create 존재/심볼릭이면 fail-closed("이미 존재/변경 — 재scan/restructure 전환?" 승인) → ② removal_candidates per-removal 승인(AskUserQuestion 적용/수정요청/거부) → ③ 미승인 removal을 anchor 위치 재삽입 → ④ preserved_blocks가 draft_body에 존재 확인(누락 fail-closed) → ⑤ **target_path 재정규화**(절대/traversal/symlink/ignored 거부, doc_kind↔path root-only exact) + **agents-md 면 `draft_body` UTF-8 byte ≤32KiB 확인(초과 fail-closed/분할)** `[R5:🟡 byte-at-write]` → garden이 Write → cross-doc 포인터/공존 제안(§7.4 조건). 세션 종료 시 1회 last-scan 삭제(≥1 변경). scan 리포트에 authoring 집계 추가. 재사용 가드의 `envelope.schema.version` payload 측 `"1.0"`→`"1.1"`(top-level `schema_version` 유지) — `:90`, `:219`.
   또한 **deep-docs/SKILL.md scan 절차의 "문서 0개 → 종료"(현 `### /deep-docs scan` Step 2 "문서가 하나도 발견되지 않은 경우 … 종료")를 "missing-doc gap 탐지 진행"으로 개조** `[R3-plan-R4:🔴 entry-skill]` — entry skill 은 Codex/SDK self-contained 라 `deep-docs-workflow/SKILL.md`(Task 5 Step 2)와 **별도** 개조 필수(빈/신규 레포 = authoring 의 flagship 경로). Task 6 에 "scan no-documents early-exit 문구 제거" verify-fixes assertion 추가.
 
 - [ ] **Step 2: deep-docs-workflow/SKILL.md에 authoring 분기 + 가드 갱신 (spec §4.4)**
@@ -419,6 +419,14 @@ npm run validate:envelope && npm run verify:fixes
 ```
 Expected: validate-envelope `✓ ... matches`; verify-fixes 마지막 줄 `Passed: N  Failed: 1` — **남은 1건은 정확히 `CHANGELOG has current version entry [1.4.0]`** (`verify-fixes.sh:146`; `plugin.json` 은 Task 1 에서 1.4.0 으로 bump 됐으나 CHANGELOG `[1.4.0]` 엔트리는 Task 7 Step 1 에서 추가되므로 — opus 실측 재현 `[R3-plan:🟡-1]`). **이 CHANGELOG 1건을 제외한 다른 Failed 가 있으면 디버깅**(producer_version 2건은 Task 2 에서 이미 해소됐어야 함). Task 7 Step 4 에서 최종 `Failed: 0` 을 단언한다 — 즉 Task 6 의 의도된 1-fail 은 verify-fixes 무시 학습이 아니라 "버전↔CHANGELOG 동기의 마지막 조각이 Task 7" 이라는 명시적 상태다.
 
+- [ ] **Step 4b: write-safety fail-closed dogfood (e2e 위임)** `[R5:codex high]`
+
+verify-fixes grep 은 "규칙이 문서에 명시됐는지"만 보증하고 **실제 fail-closed 런타임 동작은 미보장**한다. allowlist(nested/접두/traversal) 거부는 Task 1 Step 6b validator negative fixture 로 이미 **executable** 하지만, garden 의 TOCTOU/symlink/ignored 가드는 markdown 절차라 구현 후 **dogfood 로 실증** 필요:
+- (a) restructure 중 target 을 draft~Write 사이 mutate → garden 이 적용 **거부**(baseline hash 불일치).
+- (b) create 중 scan~Write 사이 target 생성 → `lstat` fail-closed.
+- (c) target 이 symlink → 거부. (d) gitignored 경로 → gap 미생성.
+런타임 e2e 하네스는 deep-docs 현 테스트 모델(grep 매트릭스 + envelope fixture) 밖이므로 v1 은 dogfood 로 커버하고, 자동화 하네스는 후속(§11 관련 deferral 과 동일 성격).
+
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -468,7 +476,7 @@ git commit -m "docs: v1.4.0 authoring — CHANGELOG/README/CLAUDE/AGENTS sync"
 deep-docs 가 `schema.version 1.1` / `gaps[]` 아티팩트를 emit 하므로, **merge 전에 deep-suite 소비자가 1.1 을 수용**해야 한다(codex high — version-skew 시 suite strict validator 가 새 아티팩트 거부/telemetry 누락). 비범위 노트가 아니라 **executable 선행 게이트**:
 
 - [ ] **Gate 1: deep-suite payload-registry v1.1 반영** — `/Users/sungmin/Dev/claude-plugins/deep-suite/schemas/payload-registry/` 의 last-scan schema(또는 deep-docs 항목)에 새 enum(`missing-doc`/`thin-doc`/`authoring`) + `gaps[]` + `schema.version 1.1` 추가. (실제 경로/구조는 suite repo 에서 확인 — codex 가 `deep-suite/scripts/validate-artifact.js` 존재 확인함.)
-- [ ] **Gate 2: suite strict validation green** — deep-docs v1.1 fixture(`tests/fixtures/sample-last-scan.json`, gaps[]+summary.authoring)를 suite validator 로 검증 통과. Run: `node /Users/sungmin/Dev/claude-plugins/deep-suite/scripts/validate-artifact.js /Users/sungmin/Dev/claude-plugins/deep-docs/tests/fixtures/sample-last-scan.json` → exit 0.
+- [ ] **Gate 2: suite strict validation green** — deep-docs v1.1 fixture(`tests/fixtures/sample-last-scan.json`, gaps[]+summary.authoring)를 suite validator 로 검증 통과. Run: `node /Users/sungmin/Dev/claude-plugins/deep-suite/scripts/validate-artifact.js --strict /Users/sungmin/Dev/claude-plugins/deep-docs/tests/fixtures/sample-last-scan.json` → exit 0. **`--strict` 필수** `[R5:P1]` — 없으면 deep-suite validator 가 registry miss 를 envelope-only success 로 통과시켜(codex 실측) schema 1.1 미반영을 못 잡음 → version-skew 게이트가 무력화됨.
 - [ ] **Gate 3: 게이트 통과 후에만** deep-docs merge(워크플로우 step 7) → marketplace rollout(step 8). Gate 1–2 미통과 시 merge 보류.
 
 (deep-dashboard `action-router.js` 의 `gaps[]`→`docs-missing` 소비는 **후속 release**(non-blocking) — 빈-레포 비노출은 spec §9.7 한계 고지. metric(total_issues 비율)은 D12 로 불변이라 dashboard 즉시 영향 없음.)
@@ -477,4 +485,4 @@ deep-docs 가 `schema.version 1.1` / `gaps[]` 아티팩트를 emit 하므로, **
 
 - **deep-suite payload-registry v1.1 반영은 비범위가 아니라 위 "릴리스 게이트"(executable, merge 전 필수)로 승격됨** `[R3-plan-R4:🔴 suite gate]` (codex high — 비범위 노트로는 강제 안 돼 version-skew 발생). deep-dashboard `action-router.js` 의 `gaps[]`→`docs-missing` 소비만 후속 release(non-blocking, 빈-레포 비노출 §9.7).
 - README/CHANGELOG/CONTRIBUTING authoring(v2), 모노레포 하위 패키지 missing-doc(v2), hook 안티패턴 탐지(v2), thin-doc 정량 임계값·doc-author model(§11 — 구현 중 dogfood).
-- spec 파일 자체 tracked 해제(`git rm --cached`)는 워크플로우 step 7(머지) 단계.
+- **spec 및 본 plan 파일 둘 다** tracked 해제(`git rm --cached docs/superpowers/specs/2026-05-28-*.md docs/superpowers/plans/2026-05-28-*.md`)는 워크플로우 step 7(머지) 단계 `[R5:P2]` — `docs/` 는 gitignored local-only(DOCS_RULE)라 spec·plan 둘 다 remote 에 published 되면 안 됨. (리뷰 위해 임시 추적 중.)
