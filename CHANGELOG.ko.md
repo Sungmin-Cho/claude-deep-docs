@@ -1,0 +1,99 @@
+# 변경 이력
+
+이 프로젝트의 모든 주요 변경 사항은 이 파일에 기록됩니다.
+
+형식은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)를 따르며,
+이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
+
+---
+
+## [1.3.1] — 2026-05-18 (Codex 네이티브 플러그인 매니페스트 및 AGENTS 가이드)
+
+### 추가됨
+
+- `.codex-plugin/plugin.json` — Claude Code 매니페스트와 동일한 skill 및 hook 표면을 가리키는 Codex 네이티브 플러그인 매니페스트.
+- `AGENTS.md` — 런타임 표면, 검증 명령어, suite 마켓플레이스 갱신 요구사항을 다루는 Codex 프로젝트 가이드.
+
+### 변경됨
+
+- README가 기존 Claude Code 표면과 함께 Codex 호환성을 문서화.
+
+## [1.3.0] — 2026-05-18
+
+### 변경됨
+
+- `/deep-docs`가 slash command 대신 `user-invocable` skill이 되었습니다. Claude Code 사용자는 그대로 `/deep-docs scan|garden|audit`를 입력하고, Codex·Copilot CLI·Gemini CLI 사용자는 `Skill({ skill: "deep-docs:deep-docs", args: "scan|garden|audit" })`로 동일 워크플로를 호출합니다.
+
+### 제거됨
+
+- `commands/deep-docs.md` (`skills/deep-docs/SKILL.md`로 대체).
+
+## [1.2.1] — 2026-05-13
+
+### 변경됨
+
+- `size-warning`을 `audit-only`로 재분류 — `current → suggested` 대체 쌍이 없으므로 리포트만 하고 자동 수정하지 않습니다.
+- Garden 프롬프트를 `AskUserQuestion`의 4항목 한계에 맞춰 4지선다 1차 프롬프트 + 2지선다 batch 후속 프롬프트로 재설계.
+
+### 수정됨
+
+- CLI `$PATH` 검사 토글이 스캔 아티팩트 재사용 가드를 조용히 손상시키는 대신 무효화하도록 수정.
+
+## [1.2.0] — 2026-05-07
+
+### 변경됨
+
+- `.deep-docs/last-scan.json`이 claude-deep-suite M3 cross-plugin envelope으로 wrap됩니다 (최상위 `schema_version`, `envelope`, `payload` 블록). 아티팩트 형태의 breaking change이며, 10분 TTL이 마이그레이션을 흡수하므로 별도 업그레이드 도구가 필요 없습니다.
+- `garden` / `audit` 재사용 가드가 envelope-aware로 갱신 — `schema_version`, `envelope.schema.version`, 10분 윈도우, `envelope.git.head`, `payload.provenance.worktree_hash`를 함께 확인합니다.
+
+### 추가됨
+
+- git을 사용하지 않는 환경에서는 sentinel `envelope.git`을 emit합니다 (`head: "0000000"`, `branch: "HEAD"`, `dirty: "unknown"`).
+
+## [1.1.0] — 2026-04-17
+
+### 추가됨
+
+- 휴리스틱 스캔 필터: 번역 쌍 그룹핑, CommonMark 코드 펜스 인식, 참조 추출, CLI 화이트리스트, 워크트리 해싱, 신선도 타임스탬프.
+- `.deep-docs/garden-ignored.json` — 거부된 수정 항목에 대한 signature 기반 영구 skip 목록.
+- Garden batch 승인 / 거부 프롬프트.
+
+### 변경됨
+
+- `.deep-docs/last-scan.json` `schema_version` 1 → 2, issue 필드 rename (`reference` → `current_value`, `suggestion` → `suggested_value`); v1.0 아티팩트는 자동 재생성됩니다.
+- Audit 점수를 정수 구간에서 소수점 1자리 + strict 부등호(`≥ 9.0`, `7.0 ≤ score < 9.0`, `5.0 ≤ score < 7.0`, `< 5.0`)로 전환.
+- 스캔 아티팩트 재사용 시 HEAD SHA + TTL뿐 아니라 미커밋 워크트리도 함께 확인.
+
+### 제거됨
+
+- `hooks/hooks.json` — 이 버전 시점에 active hook 없음.
+
+### 수정됨
+
+- 번역 쌍의 JSON 예시(예: `README.md` ↔ `README.ko.md`)가 중복으로 오판되어 삭제 제안되던 문제 해결.
+- `git log -1`, `find`, `wc` 등 시스템 명령이 오래된 CLI 예시로 오판되던 문제 해결.
+- Garden 수정 후 audit 점수를 오래된 아티팩트로 재사용하지 않고 재계산하도록 수정.
+- 해싱 및 `stat`의 macOS 호환성 확보 (`shasum -a 1`; `stat -c` / `stat -f` fallback).
+
+### 보안
+
+- 워크트리 해시 계산에서 `xargs -I{} sh -c`를 제거하여 악성 파일명을 통한 원격 코드 실행 경로를 차단.
+
+## [1.0.0] — 2026-04-08
+
+### 추가됨
+
+- `/deep-docs scan` — 죽은 참조, 이동된 경로, 오래된 예시, 중복 탐지.
+- `/deep-docs garden` — 사용자 확인 후 auto-fix 가능 항목 수정.
+- `/deep-docs audit` — path-scoped 신선도를 포함한 정량적 문서 품질 리포트.
+- doc-scanner 에이전트.
+
+### 변경됨
+
+- 오래된 예시와 중복 지침은 조건부 auto-fix입니다 (CLI/env 변수 및 100% 동일 블록만; 코드 예시와 유사 중복은 audit-only).
+- 스캔 아티팩트가 안전한 재사용을 위해 provenance(HEAD SHA, branch)를 기록.
+
+### 수정됨
+
+- 스캔 범위에서 `node_modules/`, `vendor/`, `dist/`, `build/`, `__pycache__/` 제외.
+- non-git 환경 분기 및 명확한 zero-document fallback 메시지 추가.
