@@ -197,7 +197,7 @@ legacy `1.0` payload 아티팩트는 가드 불일치로 **즉시 재-scan**(sel
 
 **`[R3-plan:medium]` gap target 검증 (write 경로 입력 — validator + garden 양쪽 강제)**: `gaps[]` 가 garden 의 Write 입력이 되므로, malformed scan/scanner bug 가 의도 밖 경로로 Write 를 유도하지 못하게 다음을 **둘 다** 강제한다:
 - `authoring_spec.doc_kind` ∈ `{claude-md, agents-md, architecture-md}` (enum), `mode` ∈ `{create, restructure}` (enum).
-- `target_path` **정확 매칭** (`[R3-plan-R4:🔴 gap allowlist]` `endsWith(basename)` 우회 차단 — codex 2/3): `expected = {claude-md→CLAUDE.md, agents-md→AGENTS.md, architecture-md→ARCHITECTURE.md}[doc_kind]` 일 때 **`tp === expected`(root) 또는 `tp.endsWith('/' + expected)`(모노레포 1-level `<pkg>/expected`)** 만 허용. `fooCLAUDE.md`(접두)·`src/generated/CLAUDE.md`(nested) 거부.
+- `target_path` **root-only exact match** (`[R4:🔴 allowlist]` — `endsWith('/'+expected)` 는 `src/generated/CLAUDE.md` 같은 nested 를 통과시키므로 금지): `expected = {claude-md→CLAUDE.md, agents-md→AGENTS.md, architecture-md→ARCHITECTURE.md}[doc_kind]` 일 때 **`tp === expected` (root 문서) 만 허용**. spec §4.2 가 모노레포 하위 패키지를 v2 로 미루므로 v1 은 root-only — `pkg/CLAUDE.md`(1-level)·`src/generated/CLAUDE.md`(nested)·`fooCLAUDE.md`(접두) **모두 거부**. exact 비교 단일 predicate 로 모든 우회 차단(§4.2 와도 정합).
 - **거부**: 절대경로, `..` traversal, **Windows separator(`\`)·drive root(`C:`)**, 심볼릭 링크, `.gitignore` ignored 경로(§6 항목 9).
 - validator(`validate-envelope-emit.js`)는 enum + 위 정확-매칭 predicate + separator/traversal 거부를 검사하고 **negative fixtures**(traversal·nested·접두·backslash 각각)가 거부됨을 self-test. **validator 와 garden 은 동일 allowlist predicate 1개를 공유**(garden 은 Write 직전 symlink/ignored 까지 추가 재확인).
 
@@ -232,7 +232,7 @@ legacy `1.0` payload 아티팩트는 가드 불일치로 **즉시 재-scan**(sel
      - `create`: 골격대로 신규 작성.
      - `restructure`: 기존 문서 파싱 → **고유 콘텐츠 식별(§6.2 휴리스틱)** → 골격 재배치 + 누락 보강, 고유 콘텐츠 보존.
   4. cross-document 연결(§7.4) + 길이 가드(§6.5) + gitignore 가드(§6 항목 9) 적용.
-  5. 산출: 위 **구조화 result 객체**(base_hash/draft_body/preserved_blocks/removal_candidates) + (실패 시) `status: "degraded"` + 강등 사유(별도 필드, draft_body 와 분리).
+  5. 산출: 위 **구조화 result 객체**(draft_body/preserved_blocks/removal_candidates — **base_hash 없음**, TOCTOU baseline 은 garden 소유 §5 ①) + (실패 시) `status: "degraded"` + 강등 사유(별도 필드, draft_body 와 분리).
 
 ---
 

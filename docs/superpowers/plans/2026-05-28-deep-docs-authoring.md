@@ -125,9 +125,10 @@ Expected: FAIL — `envelope.schema.version must be "1.0" for this release (got 
         } else if (tp.startsWith('/') || tp.includes('\\') || /^[A-Za-z]:/.test(tp) || tp.split('/').includes('..')) {
           // [R3-plan-R4] absolute / drive-root(C:) / backslash / ".." traversal 거부
           fail(`payload.gaps[${idx}].target_path must be root-local POSIX path (no absolute / drive-root / backslash / ".." traversal)`);
-        } else if (expected && !(tp === expected || tp.endsWith('/' + expected))) {
-          // [R3-plan-R4] 정확 매칭만: root expected 또는 모노레포 "<pkg>/expected". fooCLAUDE.md / src/x/CLAUDE.md 거부.
-          fail(`payload.gaps[${idx}].target_path must be "${expected}" or "<pkg>/${expected}" (got "${tp}")`);
+        } else if (expected && tp !== expected) {
+          // [R4] root-only exact match (spec §4.2: 모노레포 하위 패키지는 v2). endsWith 는 nested(src/x/CLAUDE.md)
+          // 를 통과시키므로 금지 — exact 비교만으로 nested/접두(fooCLAUDE.md)/모든 우회를 차단.
+          fail(`payload.gaps[${idx}].target_path must be exactly "${expected}" (root-only; monorepo subpaths deferred to v2)`);
         }
       });
     }
@@ -150,7 +151,7 @@ Expected: PASS — `✓ tests/fixtures/sample-last-scan.json matches deep-docs M
 `tests/fixtures/sample-last-scan-invalid-gap.json` 생성 — valid envelope(schema 1.1, producer_version 1.4.0)이되 `payload.gaps[0]` 에 **nested target_path**(예: `"target_path": "src/generated/CLAUDE.md"`, doc_kind `claude-md`) — `endsWith` 우회를 대표하는 케이스. 이 fixture 로 validator 실행:
 
 Run: `node scripts/validate-envelope-emit.js tests/fixtures/sample-last-scan-invalid-gap.json`
-Expected: FAIL (exit 1) — `payload.gaps[0].target_path must be "CLAUDE.md" or "<pkg>/CLAUDE.md" (got "src/generated/CLAUDE.md")`. **추가로** `fooCLAUDE.md`(접두)·`..\..\CLAUDE.md`(backslash traversal)·`C:\CLAUDE.md`(drive-root)도 거부됨을 구현 시 단위 확인(fixture 변형 또는 인라인 테스트). malformed gap 이 garden write 경로로 새기 전 validator 에서 차단됨을 증명.
+Expected: FAIL (exit 1) — `payload.gaps[0].target_path must be exactly "CLAUDE.md" (root-only; monorepo subpaths deferred to v2)`. **추가로** `pkg/CLAUDE.md`(1-level도 v1 root-only 라 거부)·`fooCLAUDE.md`(접두)·`..\..\CLAUDE.md`(backslash)·`C:\CLAUDE.md`(drive-root)도 거부됨을 구현 시 단위 확인. root-only exact 비교라 nested/접두/모든 우회가 단일 predicate 로 차단됨을 증명.
 
 - [ ] **Step 7: Commit**
 
@@ -374,6 +375,8 @@ check "missing-doc / thin-doc types present" \
   "grep -Eq 'missing-doc' agents/doc-scanner.md && grep -Eq 'thin-doc' agents/doc-scanner.md"
 check "entry skill no-documents path → missing-doc gap (빈 레포 authoring; R3-plan-R4 entry-skill)" \
   "grep -q 'missing-doc' skills/deep-docs/SKILL.md"
+check "entry skill old no-documents early-exit 문구 제거됨 (빈 레포 회귀 차단; R4 codex medium)" \
+  "! grep -q '스캔할 대상이 없습니다' skills/deep-docs/SKILL.md"
 check "payload.gaps[] documented in doc-scanner" \
   "grep -Eq '\"gaps\"|payload\\.gaps|gaps\\[\\]' agents/doc-scanner.md"   # 구조 토큰 (ℹ️-2: 느슨한 'gaps' 단어 매칭 회피)
 for f in claude-md agents-md architecture-md README; do
