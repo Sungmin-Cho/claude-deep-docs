@@ -1,6 +1,6 @@
 # deep-docs — Document Authoring (생성/재구성) 기능 설계
 
-- **상태**: 설계 리뷰 중 (deep-review-loop 라운드 1·2 대응 반영) → 수렴 후 writing-plans 로 전환
+- **상태**: 설계 리뷰 **수렴** (deep-review-loop 라운드 1~4: 🔴 5→3→2→0; opus 라운드4 APPROVE, codex dashboard scope 의견은 cross-repo 후속 DEFER) → writing-plans 로 전환
 - **작성일**: 2026-05-28
 - **대상 버전**: v1.4.0 (minor — 신규 기능)
 - **범위**: deep-docs 플러그인이 대상 워크스페이스에서 에이전트 지침 문서를 **생성/재구성**하는 능력 추가
@@ -302,7 +302,7 @@ legacy `1.0` payload 아티팩트는 가드 불일치로 **즉시 재-scan**(sel
 4. `CHANGELOG.md`+`.ko.md` `[1.4.0]` 엔트리(Added: authoring/doc-author/authoring-rules/gaps[]; Changed: scan 이 빈 프로젝트에서도 동작, payload schema 1.1).
 5. `README.md`+`.ko.md`: scan rules 표 authoring 행, garden authoring sub-flow, **빈/신규 레포 authoring gap 의 dashboard 비노출 한계 한 줄**(R3:🔴-2).
 6. `CLAUDE.md`+`AGENTS.md`: 스키마 섹션 동기(삼분법, gaps[], schema 1.1) — DOCS_RULE.md 준수.
-7. merge 후 deep-suite 마켓플레이스 SHA 동기.
+7. merge 후 deep-suite 마켓플레이스 SHA 동기 + **release note 에 한계 고지** `[R4: codex high]`: "빈/신규 레포의 authoring gap 은 deep-dashboard 가 `gaps[]` 를 소비하기 전까지 대시보드에 비노출(`/deep-docs scan|garden` 직접 실행으론 정상 노출)". deep-dashboard `action-router.js` 의 `gaps[]`→`docs-missing` finding 소비는 **별도 후속 release**(deep-docs v1.4.0 의 release-blocking 아님 — deep-docs 책임은 gaps[] 정상 emit 으로 완수, dashboard 소비는 cross-repo). marketplace rollout 시 이 한계를 사용자에게 명확히.
 
 ---
 
