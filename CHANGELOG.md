@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] — 2026-05-28
+
+### Added
+
+- **Document authoring** — deep-docs now creates or restructures missing/thin agent-instruction documents. `scan` detects gaps (a missing `CLAUDE.md`/`AGENTS.md`/`ARCHITECTURE.md`, or one that falls short of its official skeleton); `garden` spawns a new `doc-author` agent that drafts the document from a code analysis, then applies it after a per-removal approval flow.
+- `payload.gaps[]` in the scan artifact — records authoring specs (`doc_kind`, `target_path`, `mode`) separately from existing-document metrics, so empty/new repositories surface an authoring backlog.
+
+### Changed
+
+- `scan` now works on empty projects — instead of exiting when no documents are found, it records absent recommended documents as `missing-doc` gaps (subject to a build-manifest / size guard; ignored paths are excluded).
+- `garden` gained an authoring sub-flow: it drafts via `doc-author` (read-only), keeps user-written content by default (unapproved removals are re-inserted), and writes only after a fail-closed safety check.
+- `envelope.schema.version` for the scan payload bumped `1.0` → `1.1` (the top-level envelope `schema_version` stays `1.0`).
+
 ## [1.3.1] — 2026-05-18 (Codex-native plugin manifest and AGENTS guide)
 
 ### Added

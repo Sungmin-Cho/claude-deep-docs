@@ -156,6 +156,65 @@ check "validate-envelope-emit.js exists" \
 check "envelope self-test passes" \
   "node scripts/validate-envelope-emit.js"
 
+# Negative fixtures must be REJECTED (exit 1) by the validator.
+check "negative fixture sample-last-scan-invalid-gap.json is rejected (nested target_path)" \
+  "! node scripts/validate-envelope-emit.js tests/fixtures/sample-last-scan-invalid-gap.json"
+check "negative fixture sample-last-scan-invalid-summary.json is rejected (summary-only: authoring != gaps.length)" \
+  "! node scripts/validate-envelope-emit.js tests/fixtures/sample-last-scan-invalid-summary.json"
+check "negative fixture sample-last-scan-bad-summary-counts.json is rejected (issue-count recompute + required key omit)" \
+  "! node scripts/validate-envelope-emit.js tests/fixtures/sample-last-scan-bad-summary-counts.json"
+
+# ===== Authoring (v1.4.0) =====
+check "doc-author agent exists" \
+  "[ -f agents/doc-author.md ]"
+check "doc-author has NO Write tool (frontmatter list)" \
+  "! grep -Eq '^\s*-\s*Write\b' agents/doc-author.md"
+check "doc-author has NO Bash tool (frontmatter list)" \
+  "! grep -Eq '^\s*-\s*Bash\b' agents/doc-author.md"
+check "authoring category enum in scan-rules" \
+  "grep -q 'authoring' skills/deep-docs-workflow/references/scan-rules.md"
+check "missing-doc / thin-doc types present" \
+  "grep -Eq 'missing-doc' agents/doc-scanner.md && grep -Eq 'thin-doc' agents/doc-scanner.md"
+check "entry skill no-documents path → missing-doc gap (빈 레포 authoring; R3-plan-R4 entry-skill)" \
+  "grep -q 'missing-doc' skills/deep-docs/SKILL.md"
+check "entry skill old no-documents early-exit 문구 제거됨 (빈 레포 회귀 차단; R4 codex medium)" \
+  "! grep -q '스캔할 대상이 없습니다' skills/deep-docs/SKILL.md"
+check "payload.gaps[] documented in doc-scanner" \
+  "grep -Eq '\"gaps\"|payload\\.gaps|gaps\\[\\]' agents/doc-scanner.md"   # 구조 토큰 (ℹ️-2: 느슨한 'gaps' 단어 매칭 회피)
+for f in claude-md agents-md architecture-md README; do
+  check "authoring-rules/${f}.md exists" \
+    "[ -f skills/deep-docs-workflow/references/authoring-rules/${f}.md ]"
+done
+# spec §8: authoring-rules 공식 수치 콘텐츠 grep (ℹ️-5 defense-in-depth)
+check "claude-md.md states 200-line hard ceiling" \
+  "grep -q '200' skills/deep-docs-workflow/references/authoring-rules/claude-md.md"
+check "agents-md.md states 32 KiB Codex byte limit" \
+  "grep -Eq '32 ?KiB|32KiB' skills/deep-docs-workflow/references/authoring-rules/agents-md.md"
+check "architecture-md.md states matklad Codemap section" \
+  "grep -q 'Codemap' skills/deep-docs-workflow/references/authoring-rules/architecture-md.md"
+check "doc-author spawn in entry skill garden" \
+  "grep -q 'doc-author' skills/deep-docs/SKILL.md"
+check "structured apply contract (removal_candidates/preserved_blocks)" \
+  "grep -Eq 'removal_candidates|preserved_blocks' skills/deep-docs/SKILL.md"
+check "authoring 3-option labels present, distinct from garden 5지선다 A-E" \
+  "grep -Eq '수정요청' skills/deep-docs/SKILL.md"   # [R3-plan:🟡-2] spec §8 — authoring 적용/수정요청/거부 라벨 회귀 가드(5지선다 :111 과 별개 공존)
+# review round-1 🔴-1: TOCTOU baseline 캡처가 doc-author spawn 보다 텍스트상 앞 단계
+check "authoring sub-flow captures TOCTOU baseline before doc-author spawn (round-1 🔴)" \
+  "awk '/① TOCTOU baseline/{b=NR} /② doc-author spawn/{s=NR} END{exit !(b>0 && s>0 && b<s)}' skills/deep-docs/SKILL.md"
+# review round-1 🟡-2: create 모드도 draft_body 전체 승인 게이트 필수
+check "authoring sub-flow has whole-draft approval gate (create/restructure 양쪽 필수; round-1 🟡)" \
+  "grep -Eq 'draft_body 전체 승인|draft 전체 승인' skills/deep-docs/SKILL.md"
+
+# ===== schema 1.1 transition (top-level 1.0 유지) =====
+check "doc-scanner payload schema.version is 1.1" \
+  "grep -Eq '\"version\":\s*\"1\.1\"' agents/doc-scanner.md"
+check "doc-scanner top-level schema_version STAYS 1.0 (회귀 앵커)" \
+  "grep -Eq '\"schema_version\":\s*\"1\.0\"' agents/doc-scanner.md"
+check "validator top-level guard :81 STAYS 1.0" \
+  "grep -q \"data.schema_version !== '1.0'\" scripts/validate-envelope-emit.js"
+check "validator payload guard :115 is 1.1" \
+  "grep -q \"env.schema?.version !== '1.1'\" scripts/validate-envelope-emit.js"
+
 # ===== Result =====
 echo "---"
 echo "Passed: $pass  Failed: $fail"

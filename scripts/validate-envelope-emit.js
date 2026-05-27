@@ -43,6 +43,17 @@ const ALLOWED_GIT_KEYS = new Set(['head', 'branch', 'worktree', 'dirty']);
 const ALLOWED_PROVENANCE_KEYS = new Set(['source_artifacts', 'tool_versions']);
 const ALLOWED_SOURCE_ARTIFACT_KEYS = new Set(['path', 'run_id']);
 const ALLOWED_SCHEMA_KEYS = new Set(['name', 'version']);
+// payload.gaps[] (authoring) — write-path input, so its shape is locked too.
+const ALLOWED_GAP_KEYS = new Set([
+  'type', 'category', 'severity', 'target_path', 'exists', 'evidence', 'authoring_spec',
+]);
+const ALLOWED_AUTHORING_SPEC_KEYS = new Set(['doc_kind', 'mode', 'rationale']);
+const GAP_TYPES = new Set(['missing-doc', 'thin-doc']);
+const SUMMARY_COUNT_KEYS = ['total_issues', 'auto_fixable', 'authoring', 'audit_only'];
+
+function isNonNegInt(n) {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0;
+}
 
 const errors = [];
 function fail(msg) { errors.push(msg); }
@@ -112,8 +123,8 @@ function check(target) {
   if (!env.schema || !SCHEMA_VERSION_RE.test(env.schema.version || '')) {
     fail(`envelope.schema.version must match \\d+\\.\\d+ (got ${JSON.stringify(env.schema?.version)})`);
   }
-  if (env.schema?.version !== '1.0') {
-    fail(`envelope.schema.version must be "1.0" for this release (got ${JSON.stringify(env.schema?.version)})`);
+  if (env.schema?.version !== '1.1') {
+    fail(`envelope.schema.version must be "1.1" for this release (got ${JSON.stringify(env.schema?.version)})`);
   }
 
   // 3. producer_version === plugin.json.version (single source of truth).
@@ -216,8 +227,118 @@ function check(target) {
       }
     });
   }
+  // payload.gaps[] (authoring; optional). [R3-plan:medium] write 경로 입력 — enum/매핑/traversal 강제.
+  const DOC_KIND_TO_PATH = { 'claude-md': 'CLAUDE.md', 'agents-md': 'AGENTS.md', 'architecture-md': 'ARCHITECTURE.md' };
+  if ('gaps' in pl) {
+    if (!Array.isArray(pl.gaps)) {
+      fail('payload.gaps must be an array when present');
+    } else {
+      pl.gaps.forEach((g, idx) => {
+        if (!g || typeof g !== 'object' || Array.isArray(g)) {
+          fail(`payload.gaps[${idx}] must be a non-null, non-array object`); return;
+        }
+        reportUnknownKeys(g, ALLOWED_GAP_KEYS, `payload.gaps[${idx}]`, false);
+        if (g.category !== 'authoring') fail(`payload.gaps[${idx}].category must be "authoring"`);
+        // type enum + exists boolean (write-path input — block malformed scanner output).
+        if (!GAP_TYPES.has(g.type)) {
+          fail(`payload.gaps[${idx}].type must be one of ${[...GAP_TYPES].join('|')} (got ${JSON.stringify(g.type)})`);
+        }
+        if (typeof g.exists !== 'boolean') {
+          fail(`payload.gaps[${idx}].exists must be boolean (got ${JSON.stringify(g.exists)})`);
+        }
+        const sp = g.authoring_spec;
+        if (!sp || typeof sp !== 'object' || Array.isArray(sp)) {
+          fail(`payload.gaps[${idx}].authoring_spec must be a non-null object`); return;
+        }
+        reportUnknownKeys(sp, ALLOWED_AUTHORING_SPEC_KEYS, `payload.gaps[${idx}].authoring_spec`, false);
+        if (!(sp.doc_kind in DOC_KIND_TO_PATH)) {
+          fail(`payload.gaps[${idx}].authoring_spec.doc_kind must be one of ${Object.keys(DOC_KIND_TO_PATH).join('|')}`);
+        }
+        if (sp.mode !== 'create' && sp.mode !== 'restructure') {
+          fail(`payload.gaps[${idx}].authoring_spec.mode must be "create" or "restructure"`);
+        }
+        // type ⇔ exists ⇔ mode mapping (spec §4.5): missing-doc ⇔ exists:false ⇔ create;
+        // thin-doc ⇔ exists:true ⇔ restructure. The thin-doc⇔restructure hard-mapping
+        // matches scanner (doc-scanner.md:189) + garden create-branch dispatch (SKILL.md ①/⑥):
+        // a thin-doc with mode:create would route to the create branch's lstat() existence
+        // check and fail-closed (the doc already exists) — a dead path. Enforcing the
+        // mapping here closes the asymmetry (missing-doc already pins mode:create).
+        if (g.type === 'missing-doc') {
+          if (g.exists !== false) {
+            fail(`payload.gaps[${idx}]: missing-doc must have exists:false (got ${JSON.stringify(g.exists)})`);
+          }
+          if (sp.mode !== 'create') {
+            fail(`payload.gaps[${idx}]: missing-doc must have authoring_spec.mode "create" (got ${JSON.stringify(sp.mode)})`);
+          }
+        } else if (g.type === 'thin-doc') {
+          if (g.exists !== true) {
+            fail(`payload.gaps[${idx}]: thin-doc must have exists:true (got ${JSON.stringify(g.exists)})`);
+          }
+          if (sp.mode !== 'restructure') {
+            fail(`payload.gaps[${idx}]: thin-doc must use authoring_spec.mode "restructure" (got ${JSON.stringify(sp.mode)})`);
+          }
+        }
+        const tp = g.target_path;
+        const expected = DOC_KIND_TO_PATH[sp.doc_kind];
+        if (typeof tp !== 'string' || !tp) {
+          fail(`payload.gaps[${idx}].target_path must be non-empty string`);
+        } else if (tp.startsWith('/') || tp.includes('\\') || /^[A-Za-z]:/.test(tp) || tp.split('/').includes('..')) {
+          // [R3-plan-R4] absolute / drive-root(C:) / backslash / ".." traversal 거부
+          fail(`payload.gaps[${idx}].target_path must be root-local POSIX path (no absolute / drive-root / backslash / ".." traversal)`);
+        } else if (expected && tp !== expected) {
+          // [R4] root-only exact match (spec §4.2: 모노레포 하위 패키지는 v2). endsWith 는 nested(src/x/CLAUDE.md)
+          // 를 통과시키므로 금지 — exact 비교만으로 nested/접두(fooCLAUDE.md)/모든 우회를 차단.
+          fail(`payload.gaps[${idx}].target_path must be exactly "${expected}" (root-only; monorepo subpaths deferred to v2)`);
+        }
+      });
+    }
+  }
   if (!pl.summary || typeof pl.summary !== 'object' || Array.isArray(pl.summary)) {
     fail('payload.summary must be a non-null, non-array object');
+  } else {
+    // All four count fields are REQUIRED (omitting one previously slipped past the
+    // key-existence guard) and must each be a non-negative integer (no sentinels /
+    // floats / negatives). [codex review P2 + adversarial medium]
+    for (const k of SUMMARY_COUNT_KEYS) {
+      if (!(k in pl.summary)) {
+        fail(`payload.summary.${k} is required (must be present)`);
+      } else if (!isNonNegInt(pl.summary[k])) {
+        fail(`payload.summary.${k} must be a non-negative integer (got ${JSON.stringify(pl.summary[k])})`);
+      }
+    }
+    // Recompute the issue-category tallies from documents[].issues[] and enforce
+    // equality (the summary was previously never cross-checked against the actual
+    // issues). gaps[] are NOT issues (D12: authoring counts gaps[], not issues[]).
+    const docs = Array.isArray(pl.documents) ? pl.documents : [];
+    let recomputedAutoFix = 0;
+    let recomputedAuditOnly = 0;
+    let recomputedTotal = 0;
+    for (const doc of docs) {
+      if (!doc || typeof doc !== 'object' || !Array.isArray(doc.issues)) continue;
+      for (const iss of doc.issues) {
+        if (!iss || typeof iss !== 'object') continue;
+        recomputedTotal += 1;
+        if (iss.category === 'auto-fix') recomputedAutoFix += 1;
+        else if (iss.category === 'audit-only') recomputedAuditOnly += 1;
+      }
+    }
+    const gapCount = Array.isArray(pl.gaps) ? pl.gaps.length : 0;
+    // auto_fixable === Σ(issues where category==='auto-fix')
+    if ('auto_fixable' in pl.summary && pl.summary.auto_fixable !== recomputedAutoFix) {
+      fail(`payload.summary.auto_fixable (${JSON.stringify(pl.summary.auto_fixable)}) must equal documents[].issues[] auto-fix count (${recomputedAutoFix})`);
+    }
+    // audit_only === Σ(issues where category==='audit-only')
+    if ('audit_only' in pl.summary && pl.summary.audit_only !== recomputedAuditOnly) {
+      fail(`payload.summary.audit_only (${JSON.stringify(pl.summary.audit_only)}) must equal documents[].issues[] audit-only count (${recomputedAuditOnly})`);
+    }
+    // total_issues === total documents[].issues[] (= auto_fixable + audit_only; gaps excluded — D12)
+    if ('total_issues' in pl.summary && pl.summary.total_issues !== recomputedTotal) {
+      fail(`payload.summary.total_issues (${JSON.stringify(pl.summary.total_issues)}) must equal total documents[].issues[] count (${recomputedTotal})`);
+    }
+    // authoring === gaps[] length (always compared — omission already failed above).
+    if ('authoring' in pl.summary && pl.summary.authoring !== gapCount) {
+      fail(`payload.summary.authoring (${JSON.stringify(pl.summary.authoring)}) must equal gaps[] length (${gapCount})`);
+    }
   }
   if (!pl.provenance || typeof pl.provenance !== 'object') {
     fail('payload.provenance must be an object');

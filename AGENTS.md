@@ -14,6 +14,8 @@ To check the current version: `jq -r .version .claude-plugin/plugin.json`
 - User-invocable skill: `skills/deep-docs/SKILL.md`
 - Workflow reference skill: `skills/deep-docs-workflow/`
 - Scanner agent: `agents/doc-scanner.md`
+- Author agent: `agents/doc-author.md` (authoring drafts; Read/Glob/Grep only — no Write/Bash)
+- Authoring rules: `skills/deep-docs-workflow/references/authoring-rules/` (CLAUDE/AGENTS/ARCHITECTURE skeletons + cross-doc)
 - Scripts: `scripts/validate-envelope-emit.js`, `scripts/verify-fixes.sh`
 
 Scan artifacts such as `.deep-docs/last-scan.json` belong to target projects,

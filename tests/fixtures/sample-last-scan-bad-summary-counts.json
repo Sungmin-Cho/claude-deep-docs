@@ -15,9 +15,7 @@
     },
     "provenance": {
       "source_artifacts": [
-        { "path": "CLAUDE.md" },
-        { "path": "README.md" },
-        { "path": "AGENTS.md" }
+        { "path": "CLAUDE.md" }
       ],
       "tool_versions": {
         "node": "v20.11.0",
@@ -53,25 +51,9 @@
       }
     ],
     "summary": {
-      "total_issues": 1,
-      "auto_fixable": 1,
-      "authoring": 1,
+      "total_issues": 0,
+      "auto_fixable": 0,
       "audit_only": 0
-    },
-    "gaps": [
-      {
-        "type": "missing-doc",
-        "category": "authoring",
-        "severity": "high",
-        "target_path": "ARCHITECTURE.md",
-        "exists": false,
-        "evidence": "12k LOC, no ARCHITECTURE.md",
-        "authoring_spec": {
-          "doc_kind": "architecture-md",
-          "mode": "create",
-          "rationale": "large codebase lacks architecture map"
-        }
-      }
-    ]
+    }
   }
 }
