@@ -112,8 +112,8 @@ function check(target) {
   if (!env.schema || !SCHEMA_VERSION_RE.test(env.schema.version || '')) {
     fail(`envelope.schema.version must match \\d+\\.\\d+ (got ${JSON.stringify(env.schema?.version)})`);
   }
-  if (env.schema?.version !== '1.0') {
-    fail(`envelope.schema.version must be "1.0" for this release (got ${JSON.stringify(env.schema?.version)})`);
+  if (env.schema?.version !== '1.1') {
+    fail(`envelope.schema.version must be "1.1" for this release (got ${JSON.stringify(env.schema?.version)})`);
   }
 
   // 3. producer_version === plugin.json.version (single source of truth).
@@ -215,6 +215,42 @@ function check(target) {
         fail(`payload.documents[${idx}].metrics must be a non-null, non-array object`);
       }
     });
+  }
+  // payload.gaps[] (authoring; optional). [R3-plan:medium] write 경로 입력 — enum/매핑/traversal 강제.
+  const DOC_KIND_TO_PATH = { 'claude-md': 'CLAUDE.md', 'agents-md': 'AGENTS.md', 'architecture-md': 'ARCHITECTURE.md' };
+  if ('gaps' in pl) {
+    if (!Array.isArray(pl.gaps)) {
+      fail('payload.gaps must be an array when present');
+    } else {
+      pl.gaps.forEach((g, idx) => {
+        if (!g || typeof g !== 'object' || Array.isArray(g)) {
+          fail(`payload.gaps[${idx}] must be a non-null, non-array object`); return;
+        }
+        if (g.category !== 'authoring') fail(`payload.gaps[${idx}].category must be "authoring"`);
+        const sp = g.authoring_spec;
+        if (!sp || typeof sp !== 'object' || Array.isArray(sp)) {
+          fail(`payload.gaps[${idx}].authoring_spec must be a non-null object`); return;
+        }
+        if (!(sp.doc_kind in DOC_KIND_TO_PATH)) {
+          fail(`payload.gaps[${idx}].authoring_spec.doc_kind must be one of ${Object.keys(DOC_KIND_TO_PATH).join('|')}`);
+        }
+        if (sp.mode !== 'create' && sp.mode !== 'restructure') {
+          fail(`payload.gaps[${idx}].authoring_spec.mode must be "create" or "restructure"`);
+        }
+        const tp = g.target_path;
+        const expected = DOC_KIND_TO_PATH[sp.doc_kind];
+        if (typeof tp !== 'string' || !tp) {
+          fail(`payload.gaps[${idx}].target_path must be non-empty string`);
+        } else if (tp.startsWith('/') || tp.includes('\\') || /^[A-Za-z]:/.test(tp) || tp.split('/').includes('..')) {
+          // [R3-plan-R4] absolute / drive-root(C:) / backslash / ".." traversal 거부
+          fail(`payload.gaps[${idx}].target_path must be root-local POSIX path (no absolute / drive-root / backslash / ".." traversal)`);
+        } else if (expected && tp !== expected) {
+          // [R4] root-only exact match (spec §4.2: 모노레포 하위 패키지는 v2). endsWith 는 nested(src/x/CLAUDE.md)
+          // 를 통과시키므로 금지 — exact 비교만으로 nested/접두(fooCLAUDE.md)/모든 우회를 차단.
+          fail(`payload.gaps[${idx}].target_path must be exactly "${expected}" (root-only; monorepo subpaths deferred to v2)`);
+        }
+      });
+    }
   }
   if (!pl.summary || typeof pl.summary !== 'object' || Array.isArray(pl.summary)) {
     fail('payload.summary must be a non-null, non-array object');
