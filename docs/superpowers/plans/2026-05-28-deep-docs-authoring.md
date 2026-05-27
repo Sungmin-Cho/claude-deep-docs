@@ -156,6 +156,7 @@ git commit -m "feat(envelope): schema 1.1 + payload.gaps[] + bump to 1.4.0"
 - [ ] **Step 2: doc-scanner.md Step 시프트 + Step 11 Gap 탐지 신설**
 
 `agents/doc-scanner.md`에서 기존 `### 11. 결과 출력`→`### 12. 결과 출력`, `### 12. 결과 저장`→`### 13. 결과 저장`으로 번호 시프트. 그 사이에 `### 11. Gap 탐지 (Missing/Thin Doc — authoring)` 신설 — spec §4.2/§4.3: Glob으로 CLAUDE/AGENTS/ARCHITECTURE 존재 확인, 부재 시 missing-doc gap(가드 조건 충족 시), 존재하나 골격 미달 시 thin-doc gap. Step 9(coverage)의 `uncovered_modules[]` 재사용. 결과를 `payload.gaps[]`에 기록.
+  **`[R3-plan:ℹ️-1]` scan-side gitignore 가드 (spec §6 item 9)**: Step 11 은 `.gitignore` 로 ignored 된 경로(특히 `docs/`)를 **gap 후보에서 제외**한다 — gap 이 scan 에서 먼저 생성되므로 scan-side 에서 걸러야 garden 까지 새지 않음(doc-author body 가드와 양쪽 대칭). scan-rules Rule 9 기술에도 "ignored 경로 제외" 명시.
 
 또한 Step 1("문서 발견")의 "없는 파일은 건너뛴다"를 "없는 권장 문서는 missing-doc gap 후보로 기록(Step 11에서 가드 적용)"으로 개조.
 
@@ -310,6 +311,7 @@ Run:
 ```bash
 grep -q 'doc-author' skills/deep-docs/SKILL.md && echo "OK: doc-author spawn"
 grep -q 'removal_candidates\|preserved_blocks' skills/deep-docs/SKILL.md && echo "OK: 구조화 contract"
+grep -q '수정요청' skills/deep-docs/SKILL.md && echo "OK: authoring 3-option 라벨(적용/수정요청/거부)" || echo "FAIL: 3-option 라벨 누락"
 grep -c 'envelope.schema.version === "1.1"' skills/deep-docs/SKILL.md skills/deep-docs-workflow/SKILL.md   # payload 가드 1.1
 grep -c 'schema_version === "1.0"' skills/deep-docs/SKILL.md skills/deep-docs-workflow/SKILL.md            # top-level 유지
 ```
@@ -346,7 +348,7 @@ check "authoring category enum in scan-rules" \
 check "missing-doc / thin-doc types present" \
   "grep -Eq 'missing-doc' agents/doc-scanner.md && grep -Eq 'thin-doc' agents/doc-scanner.md"
 check "payload.gaps[] documented in doc-scanner" \
-  "grep -q 'gaps' agents/doc-scanner.md"
+  "grep -Eq '\"gaps\"|payload\\.gaps|gaps\\[\\]' agents/doc-scanner.md"   # 구조 토큰 (ℹ️-2: 느슨한 'gaps' 단어 매칭 회피)
 for f in claude-md agents-md architecture-md README; do
   check "authoring-rules/${f}.md exists" \
     "[ -f skills/deep-docs-workflow/references/authoring-rules/${f}.md ]"
@@ -355,7 +357,11 @@ check "doc-author spawn in entry skill garden" \
   "grep -q 'doc-author' skills/deep-docs/SKILL.md"
 check "structured apply contract (removal_candidates/preserved_blocks)" \
   "grep -Eq 'removal_candidates|preserved_blocks' skills/deep-docs/SKILL.md"
+check "authoring 3-option labels present, distinct from garden 5지선다 A-E" \
+  "grep -Eq '수정요청' skills/deep-docs/SKILL.md"   # [R3-plan:🟡-2] spec §8 — authoring 적용/수정요청/거부 라벨 회귀 가드(5지선다 :111 과 별개 공존)
 ```
+
+(라벨 토큰 `수정요청` 은 Task 5 Step 1 에서 작성하는 authoring sub-flow AskUserQuestion 의 고유 라벨 — garden 5지선다(적용/건너뜀/건너뜀+기록/일괄)에는 없으므로 두 옵션셋 공존을 구조적으로 보증.)
 
 - [ ] **Step 2: schema 1.1 회귀 앵커 추가 (top-level 유지 + payload 1.1)**
 
@@ -381,7 +387,7 @@ Run:
 ```bash
 npm run validate:envelope && npm run verify:fixes
 ```
-Expected: validate-envelope `✓ ... matches`; verify-fixes 마지막 줄 `Passed: N  Failed: 0` (N = 기존 43 + 신규 authoring/schema 체크).
+Expected: validate-envelope `✓ ... matches`; verify-fixes 마지막 줄 `Passed: N  Failed: 1` — **남은 1건은 정확히 `CHANGELOG has current version entry [1.4.0]`** (`verify-fixes.sh:146`; `plugin.json` 은 Task 1 에서 1.4.0 으로 bump 됐으나 CHANGELOG `[1.4.0]` 엔트리는 Task 7 Step 1 에서 추가되므로 — opus 실측 재현 `[R3-plan:🟡-1]`). **이 CHANGELOG 1건을 제외한 다른 Failed 가 있으면 디버깅**(producer_version 2건은 Task 2 에서 이미 해소됐어야 함). Task 7 Step 4 에서 최종 `Failed: 0` 을 단언한다 — 즉 Task 6 의 의도된 1-fail 은 verify-fixes 무시 학습이 아니라 "버전↔CHANGELOG 동기의 마지막 조각이 Task 7" 이라는 명시적 상태다.
 
 - [ ] **Step 5: Commit**
 
@@ -416,7 +422,7 @@ Run:
 npm run validate:envelope && npm run verify:fixes
 git status
 ```
-Expected: 둘 다 green, `[1.4.0]` CHANGELOG 체크 통과(`verify-fixes`의 `CHANGELOG has current version entry [$plugin_ver]`).
+Expected: 둘 다 green — verify-fixes 마지막 줄 **`Passed: N  Failed: 0`** (Task 6 의 의도된 1-fail 인 `CHANGELOG has current version entry [1.4.0]` 가 본 Step 1 의 CHANGELOG 엔트리 추가로 해소됨 `[R3-plan:🟡-1]`). validate-envelope `✓ matches`.
 
 - [ ] **Step 5: Commit**
 
