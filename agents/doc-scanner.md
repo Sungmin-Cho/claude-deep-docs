@@ -186,7 +186,7 @@ rename 이력이 있으면 새 경로를 기록.
    }
    ```
    - `target_path`는 **root-only exact**(`CLAUDE.md` / `AGENTS.md` / `ARCHITECTURE.md`) — nested / 접두 / traversal 금지(validator + garden 양쪽 강제).
-   - `authoring_spec.doc_kind` ∈ `{claude-md, agents-md, architecture-md}`, `mode` ∈ `{create(missing-doc), restructure(thin-doc)}`.
+   - `authoring_spec.doc_kind` ∈ `{claude-md, agents-md, architecture-md}`, `mode` ∈ `{create, restructure}` — **mode⇔type 하드매핑**: `missing-doc ⇔ create`, `thin-doc ⇔ restructure`(validator + garden create-branch 분기 양쪽 강제; 비대칭 조합은 거부).
 
 ### 12. 결과 출력
 <!-- Step 12 → auto-fix/audit-only/authoring 분류 + 리포트 구조화. -->

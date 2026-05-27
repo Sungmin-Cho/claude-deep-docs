@@ -159,8 +159,10 @@ check "envelope self-test passes" \
 # Negative fixtures must be REJECTED (exit 1) by the validator.
 check "negative fixture sample-last-scan-invalid-gap.json is rejected (nested target_path)" \
   "! node scripts/validate-envelope-emit.js tests/fixtures/sample-last-scan-invalid-gap.json"
-check "negative fixture sample-last-scan-invalid-summary.json is rejected (summary/type mismatch)" \
+check "negative fixture sample-last-scan-invalid-summary.json is rejected (summary-only: authoring != gaps.length)" \
   "! node scripts/validate-envelope-emit.js tests/fixtures/sample-last-scan-invalid-summary.json"
+check "negative fixture sample-last-scan-bad-summary-counts.json is rejected (issue-count recompute + required key omit)" \
+  "! node scripts/validate-envelope-emit.js tests/fixtures/sample-last-scan-bad-summary-counts.json"
 
 # ===== Authoring (v1.4.0) =====
 check "doc-author agent exists" \

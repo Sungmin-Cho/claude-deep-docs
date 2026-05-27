@@ -258,8 +258,11 @@ function check(target) {
           fail(`payload.gaps[${idx}].authoring_spec.mode must be "create" or "restructure"`);
         }
         // type ⇔ exists ⇔ mode mapping (spec §4.5): missing-doc ⇔ exists:false ⇔ create;
-        // thin-doc ⇔ exists:true (mode create|restructure both allowed — thin docs may be
-        // augmented in place or rewritten). Reject the contradictory combinations.
+        // thin-doc ⇔ exists:true ⇔ restructure. The thin-doc⇔restructure hard-mapping
+        // matches scanner (doc-scanner.md:189) + garden create-branch dispatch (SKILL.md ①/⑥):
+        // a thin-doc with mode:create would route to the create branch's lstat() existence
+        // check and fail-closed (the doc already exists) — a dead path. Enforcing the
+        // mapping here closes the asymmetry (missing-doc already pins mode:create).
         if (g.type === 'missing-doc') {
           if (g.exists !== false) {
             fail(`payload.gaps[${idx}]: missing-doc must have exists:false (got ${JSON.stringify(g.exists)})`);
@@ -270,6 +273,9 @@ function check(target) {
         } else if (g.type === 'thin-doc') {
           if (g.exists !== true) {
             fail(`payload.gaps[${idx}]: thin-doc must have exists:true (got ${JSON.stringify(g.exists)})`);
+          }
+          if (sp.mode !== 'restructure') {
+            fail(`payload.gaps[${idx}]: thin-doc must use authoring_spec.mode "restructure" (got ${JSON.stringify(sp.mode)})`);
           }
         }
         const tp = g.target_path;
@@ -290,14 +296,46 @@ function check(target) {
   if (!pl.summary || typeof pl.summary !== 'object' || Array.isArray(pl.summary)) {
     fail('payload.summary must be a non-null, non-array object');
   } else {
-    // Summary count fields must be non-negative integers (no sentinels / floats / negatives).
+    // All four count fields are REQUIRED (omitting one previously slipped past the
+    // key-existence guard) and must each be a non-negative integer (no sentinels /
+    // floats / negatives). [codex review P2 + adversarial medium]
     for (const k of SUMMARY_COUNT_KEYS) {
-      if (k in pl.summary && !isNonNegInt(pl.summary[k])) {
+      if (!(k in pl.summary)) {
+        fail(`payload.summary.${k} is required (must be present)`);
+      } else if (!isNonNegInt(pl.summary[k])) {
         fail(`payload.summary.${k} must be a non-negative integer (got ${JSON.stringify(pl.summary[k])})`);
       }
     }
-    // summary.authoring must equal gaps[] length (D12: authoring counts gaps[], not issues[]).
+    // Recompute the issue-category tallies from documents[].issues[] and enforce
+    // equality (the summary was previously never cross-checked against the actual
+    // issues). gaps[] are NOT issues (D12: authoring counts gaps[], not issues[]).
+    const docs = Array.isArray(pl.documents) ? pl.documents : [];
+    let recomputedAutoFix = 0;
+    let recomputedAuditOnly = 0;
+    let recomputedTotal = 0;
+    for (const doc of docs) {
+      if (!doc || typeof doc !== 'object' || !Array.isArray(doc.issues)) continue;
+      for (const iss of doc.issues) {
+        if (!iss || typeof iss !== 'object') continue;
+        recomputedTotal += 1;
+        if (iss.category === 'auto-fix') recomputedAutoFix += 1;
+        else if (iss.category === 'audit-only') recomputedAuditOnly += 1;
+      }
+    }
     const gapCount = Array.isArray(pl.gaps) ? pl.gaps.length : 0;
+    // auto_fixable === Σ(issues where category==='auto-fix')
+    if ('auto_fixable' in pl.summary && pl.summary.auto_fixable !== recomputedAutoFix) {
+      fail(`payload.summary.auto_fixable (${JSON.stringify(pl.summary.auto_fixable)}) must equal documents[].issues[] auto-fix count (${recomputedAutoFix})`);
+    }
+    // audit_only === Σ(issues where category==='audit-only')
+    if ('audit_only' in pl.summary && pl.summary.audit_only !== recomputedAuditOnly) {
+      fail(`payload.summary.audit_only (${JSON.stringify(pl.summary.audit_only)}) must equal documents[].issues[] audit-only count (${recomputedAuditOnly})`);
+    }
+    // total_issues === total documents[].issues[] (= auto_fixable + audit_only; gaps excluded — D12)
+    if ('total_issues' in pl.summary && pl.summary.total_issues !== recomputedTotal) {
+      fail(`payload.summary.total_issues (${JSON.stringify(pl.summary.total_issues)}) must equal total documents[].issues[] count (${recomputedTotal})`);
+    }
+    // authoring === gaps[] length (always compared — omission already failed above).
     if ('authoring' in pl.summary && pl.summary.authoring !== gapCount) {
       fail(`payload.summary.authoring (${JSON.stringify(pl.summary.authoring)}) must equal gaps[] length (${gapCount})`);
     }
