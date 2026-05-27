@@ -1,194 +1,129 @@
 **English** | [한국어](./README.ko.md)
 
-# Deep Docs Plugin
+# deep-docs
 
-A document gardening agent that validates freshness and auto-repairs agent instruction files (CLAUDE.md, AGENTS.md, and project docs).
+![version](https://img.shields.io/github/package-json/v/Sungmin-Cho/claude-deep-docs?label=version)
+![license](https://img.shields.io/github/license/Sungmin-Cho/claude-deep-docs)
+[![part of deep-suite](https://img.shields.io/badge/part%20of-deep--suite-5b8def)](https://github.com/Sungmin-Cho/claude-deep-suite)
 
-## Codex Compatibility
+> A document gardening agent that validates freshness and auto-repairs agent instruction files — `CLAUDE.md`, `AGENTS.md`, and project docs.
 
-This release includes native Codex plugin metadata in `.codex-plugin/plugin.json` and a Codex project guide in `AGENTS.md`. The Claude Code manifest remains in `.claude-plugin/plugin.json`, and the unchanged `claude-deep-suite` marketplace namespace lets existing installs keep their plugin keys while Codex reads the suite's `.agents/plugins/marketplace.json`.
+Agent instruction documents go stale quickly. As a codebase evolves, `CLAUDE.md` and `AGENTS.md` accumulate dead references, moved paths, and outdated examples — and agents working from stale docs make decisions based on information that no longer reflects reality. deep-docs runs a repeatable scan → garden → audit cycle that detects the gap, auto-fixes what can be safely repaired (with your confirmation), and scores overall doc quality.
 
-> "Too many instructions stop being instructions. They rot fast."
-> — OpenAI, Harness Engineering
+> "Too many instructions stop being instructions. They rot fast." — OpenAI, Harness Engineering
 
-### Role in Harness Engineering
+## Role in deep-suite
 
-deep-docs operates in two quadrants of the [Harness Engineering](https://martinfowler.com/articles/harness-engineering.html) framework within the [Deep Suite](https://github.com/Sungmin-Cho/claude-deep-suite) ecosystem:
+deep-docs is one of the plugins in the [claude-deep-suite](https://github.com/Sungmin-Cho/claude-deep-suite). In the [Harness Engineering](https://martinfowler.com/articles/harness-engineering.html) framework it operates in two quadrants:
 
-- **Inferential Guide**: Maintains the quality of agent instruction documents (CLAUDE.md, AGENTS.md), ensuring guides remain accurate and up-to-date
-- **Computational Sensor**: The doc freshness scan (`last-scan.json`) provides deterministic document health metrics consumed by [deep-dashboard](https://github.com/Sungmin-Cho/claude-deep-dashboard) in the Continuous timing band
+- **Inferential Guide** — keeps agent instruction documents accurate and current, so the guides agents read stay trustworthy.
+- **Computational Sensor** — the freshness scan (`.deep-docs/last-scan.json`) emits deterministic document-health metrics that [deep-dashboard](https://github.com/Sungmin-Cho/claude-deep-dashboard) consumes.
 
-## The Problem
+## Install
 
-Agent instruction documents go stale quickly. As your codebase evolves, CLAUDE.md and AGENTS.md accumulate dead references, moved paths, and outdated examples. When agents work from stale docs, they make decisions based on information that no longer reflects reality — wrong file paths, deprecated commands, removed functions.
-
-Manual upkeep is tedious and easy to forget. The gap between documentation and code widens silently until it causes real problems.
-
-## The Solution
-
-Deep Docs provides three subcommands that work together as a gardening workflow:
-
-- **scan** detects the gap between your docs and your codebase
-- **garden** auto-repairs what can be safely fixed, with your confirmation
-- **audit** gives you a quantitative quality score across all doc files
-
-## Key Commands
-
-| Command | Description |
-|---------|-------------|
-| `/deep-docs scan` | Detect stale references, moved paths, and outdated examples |
-| `/deep-docs garden` | Auto-fix issues with diff preview and user confirmation |
-| `/deep-docs audit` | Quantitative quality report with per-file scores |
-
-Running `/deep-docs` without arguments prompts you to choose a subcommand interactively.
-
-## Scan Rules
-
-The scanner classifies every finding into one of two categories:
-
-### Auto-fixable (repaired by `garden`)
-
-| Rule | Description | Fix Strategy |
-|------|-------------|--------------|
-| Dead References | File paths, functions, or classes referenced in docs that no longer exist in code | Update to current path/name, or mark as `[removed]` |
-| Moved/Renamed Paths | References that don't exist but have a `git log --follow` rename history | Update to new path automatically |
-| Stale Examples | CLI commands or env variables in docs that don't match `package.json` scripts or `.env.example` | Conditional auto-fix when exact replacement is known; code examples are audit-only |
-| Duplicated Instructions | Identical blocks (3+ lines, 100% match) repeated across multiple docs | Remove duplicates; near-duplicates are audit-only |
-
-### Audit-only (reported but not auto-fixed)
-
-| Rule | Description | Why Not Auto-fixed |
-|------|-------------|-------------------|
-| Size/Organization | CLAUDE.md/AGENTS.md >100, README.md >300, other docs/ >200 | Splitting requires structural judgment (section boundaries, external refs); reported as suggestion only |
-| Rule-Code Contradiction | Doc says "use snake_case" but 72% of code uses camelCase | Requires architecture judgment; high false-positive risk |
-| Coverage Gaps | Major modules in `src/` not mentioned anywhere in docs | "Major" is subjective |
-| Map vs Manual Ratio | Ratio of direct instructions vs external pointers/links | Optimal ratio varies per project |
-
-## Garden Workflow
-
-When you run `/deep-docs garden`, the agent:
-
-1. **Loads scan results** from `.deep-docs/last-scan.json` if it is less than 10 minutes old and the HEAD SHA matches the current commit. Otherwise re-runs the scan first.
-2. **Filters to auto-fixable issues** only (dead references, moved paths, confirmed stale examples, exact duplicates). Size warnings surface in the audit-only summary instead, since splitting needs structural judgment.
-3. **For each issue**, shows a diff and asks for confirmation:
-   ```
-   ## Fix 1/3: CLAUDE.md — Dead Reference
-
-   - `src/auth/middleware.ts` → `src/auth/auth-middleware.ts` (git rename detected)
-
-   Apply this fix?
-   ```
-4. **Applies the edit** with the Edit tool after you confirm.
-5. **Summarizes** fixes applied, skipped, and audit-only items noted for reference.
-
-Audit-only items are always shown at the end as informational notes, never modified automatically.
-
-## Audit Metrics
-
-`/deep-docs audit` scores each document across four measurable dimensions:
-
-| Metric | How It Is Measured | Scoring |
-|--------|--------------------|---------|
-| Size | Line count vs recommended limit | CLAUDE.md/AGENTS.md: ≤100 lines = 10, 100–200 = 7, >200 = 4 |
-| Freshness | `git log` timestamps: are any referenced paths newer than the doc? | All fresh = 10, some stale = 7, mostly stale = 4 |
-| Reference Accuracy | Valid references / total references | 100% = 10, 90–99% = 8, 70–89% = 5, <70% = 2 |
-| Duplication | Count of duplicate blocks shared with other docs | 0 = 10, 1–2 = 7, ≥3 = 4 |
-
-Freshness is path-scoped: it checks the referenced files in each doc rather than the whole repo, so a change to an unrelated module does not penalize your docs.
-
-**Scoring bands:**
-
-| Score | Band |
-|-------|------|
-| `≥ 9.0` | Excellent |
-| `7.0 ≤ score < 9.0` | Good |
-| `5.0 ≤ score < 7.0` | Fair (gardening recommended) |
-| `< 5.0` | Poor (immediate attention needed) |
-
-The overall score is rounded to 1 decimal (e.g., `8.5`). If a doc has no outbound references (freshness cannot be measured), that dimension is excluded and the remaining dimensions are averaged instead.
-
-## Configuration
-
-Deep Docs requires no configuration file. It creates `.deep-docs/` automatically on first run.
-
-### Scan artifact: `.deep-docs/last-scan.json`
-
-Every scan writes a durable artifact wrapped in the **claude-deep-suite M3 cross-plugin envelope** (see `claude-deep-suite/docs/envelope-migration.md`):
-
-```json
-{
-  "$schema": "https://raw.githubusercontent.com/Sungmin-Cho/claude-deep-suite/main/schemas/artifact-envelope.schema.json",
-  "schema_version": "1.0",
-  "envelope": {
-    "producer": "deep-docs",
-    "producer_version": "1.2.1",
-    "artifact_kind": "last-scan",
-    "run_id": "01KR0J7WBXJS57PBM04MYPHENX",
-    "generated_at": "2026-05-07T14:30:00Z",
-    "schema": { "name": "last-scan", "version": "1.0" },
-    "git": { "head": "abc1234", "branch": "main", "dirty": false },
-    "provenance": {
-      "source_artifacts": [
-        { "path": "CLAUDE.md" },
-        { "path": "README.md" }
-      ],
-      "tool_versions": { "node": "v20.x", "python": "3.12.x" }
-    }
-  },
-  "payload": {
-    "provenance": {
-      "is_git": true,
-      "worktree_hash": "3f8a..."
-    },
-    "documents": [
-      {
-        "path": "CLAUDE.md",
-        "issues": [...],
-        "metrics": {
-          "size_lines": 85,
-          "freshness_score": 7,
-          "reference_accuracy": 0.85,
-          "duplication_count": 1
-        }
-      }
-    ],
-    "summary": {
-      "total_issues": 5,
-      "auto_fixable": 3,
-      "audit_only": 2
-    }
-  }
-}
-```
-
-`garden` and `audit` reuse this artifact if ALL hold (envelope-aware, 4-factor):
-- `schema_version === "1.0"` AND `envelope.schema.version === "1.0"`
-- `envelope.generated_at` within **10 minutes**
-- `envelope.git.head` matches `git rev-parse HEAD` (git env)
-- `payload.provenance.worktree_hash` matches recomputation (git env)
-
-Legacy v1.1.0 shape (`schema_version: 2` numeric, `scanned_at` at root, `provenance.head_sha`) auto-fails check 1 → re-scan triggered. The 10-minute TTL absorbs migration; no upgrade tooling needed.
-
-The `worktree_hash` covers tracked diff + untracked file list/content (NUL-safe, per-file git-hash-object). See `scan-filters/worktree-hash.md`.
-
-In non-git environments, only the 10-minute TTL applies. Envelope emits sentinel `git = { "head": "0000000", "branch": "HEAD", "dirty": "unknown" }`.
-
-## Installation
-
-### From Claude Code Marketplace
+Via the `claude-deep-suite` marketplace:
 
 ```bash
-claude plugin add deep-docs
+# Claude Code
+/plugin install deep-docs@claude-deep-suite
+
+# Codex
+codex plugin install deep-docs
 ```
 
-### From Git URL (development / pre-release)
+Or directly from this repo:
 
 ```bash
 claude plugin add https://github.com/Sungmin-Cho/claude-deep-docs.git
 ```
 
-After install, run `/deep-docs` in any project directory. The plugin auto-creates `.deep-docs/` on first use.
+After install, run `/deep-docs` in any project directory. The plugin auto-creates `.deep-docs/` on first use — no configuration file required.
+
+## Quick start
+
+```bash
+/deep-docs scan      # detect stale references, moved paths, and outdated examples
+/deep-docs garden    # auto-fix safe issues, with a diff preview and confirmation
+/deep-docs audit     # quantitative quality report with per-file scores
+```
+
+Running `/deep-docs` with no argument prompts you to choose a subcommand interactively. Codex, Copilot CLI, and Gemini CLI users invoke the same workflow with `Skill({ skill: "deep-docs:deep-docs", args: "scan|garden|audit" })`.
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `/deep-docs scan` | Detect dead references, moved paths, stale examples, and duplicate blocks |
+| `/deep-docs garden` | Auto-fix issues with a diff preview and user confirmation |
+| `/deep-docs audit` | Score each document across size, freshness, reference accuracy, and duplication |
+
+## Scan rules
+
+The scanner classifies every finding into one of two categories.
+
+### Auto-fixable (repaired by `garden`)
+
+| Rule | Description | Fix strategy |
+|---|---|---|
+| Dead references | File paths, functions, or classes referenced in docs that no longer exist | Update to the current path/name, or mark as `[removed]` |
+| Moved/renamed paths | References with a `git log --follow` rename history | Update to the new path automatically |
+| Stale examples | CLI commands or env variables that don't match `package.json` scripts or `.env.example` | Conditional auto-fix when an exact replacement is known; code examples are audit-only |
+| Duplicated instructions | Identical blocks (3+ lines, 100% match) repeated across docs | Remove duplicates; near-duplicates are audit-only |
+
+### Audit-only (reported, never auto-fixed)
+
+| Rule | Description | Why not auto-fixed |
+|---|---|---|
+| Size/organization | `CLAUDE.md`/`AGENTS.md` >100, `README.md` >300, other `docs/` >200 lines | Splitting needs structural judgment |
+| Rule–code contradiction | Doc says "use snake_case" but most code uses camelCase | Architecture judgment; high false-positive risk |
+| Coverage gaps | Major modules not mentioned anywhere in docs | "Major" is subjective |
+| Map vs manual ratio | Ratio of direct instructions to external pointers | Optimal ratio varies per project |
+
+## Garden workflow
+
+When you run `/deep-docs garden`, the agent:
+
+1. **Reuses** `.deep-docs/last-scan.json` if it is fresh (under 10 minutes old, matching HEAD and worktree); otherwise re-runs the scan first.
+2. **Filters to auto-fixable issues** only — size warnings stay in the audit-only summary.
+3. **For each issue**, shows a diff and asks for confirmation before applying the edit.
+4. **Summarizes** fixes applied, skipped, and audit-only items noted for reference.
+
+Audit-only items are always shown at the end as informational notes, never modified automatically.
+
+## Audit metrics
+
+`/deep-docs audit` scores each document across four measurable dimensions:
+
+| Metric | How it is measured | Scoring |
+|---|---|---|
+| Size | Line count vs recommended limit | `CLAUDE.md`/`AGENTS.md`: ≤100 = 10, 100–200 = 7, >200 = 4 |
+| Freshness | Are any referenced paths newer than the doc? | All fresh = 10, some stale = 7, mostly stale = 4 |
+| Reference accuracy | Valid references / total references | 100% = 10, 90–99% = 8, 70–89% = 5, <70% = 2 |
+| Duplication | Duplicate blocks shared with other docs | 0 = 10, 1–2 = 7, ≥3 = 4 |
+
+Freshness is path-scoped — it checks only the files each doc references, so a change to an unrelated module does not penalize your docs.
+
+**Scoring bands:**
+
+| Score | Band |
+|---|---|
+| `≥ 9.0` | Excellent |
+| `7.0 ≤ score < 9.0` | Good |
+| `5.0 ≤ score < 7.0` | Fair (gardening recommended) |
+| `< 5.0` | Poor (immediate attention needed) |
+
+The overall score is rounded to one decimal. If a doc has no outbound references, the freshness dimension is excluded and the remaining dimensions are averaged.
+
+## Scan artifact
+
+Every scan writes `.deep-docs/last-scan.json`, wrapped in the [claude-deep-suite M3 cross-plugin envelope](https://github.com/Sungmin-Cho/claude-deep-suite) (top-level `schema_version` + `envelope` + `payload`). `garden` and `audit` reuse it only when the envelope identity, schema version, 10-minute TTL, `envelope.git.head`, and `payload.provenance.worktree_hash` all match; otherwise the scan re-runs. In non-git environments only the TTL applies, and the envelope emits a sentinel `git` block.
+
+## Links
+
+- [CHANGELOG](CHANGELOG.md) ([한국어](CHANGELOG.ko.md)) — release history
+- [claude-deep-suite](https://github.com/Sungmin-Cho/claude-deep-suite) — the marketplace and the rest of the suite
+- [deep-dashboard](https://github.com/Sungmin-Cho/claude-deep-dashboard) — consumes the freshness scan metrics
 
 ## License
 
-MIT
+[MIT](LICENSE)

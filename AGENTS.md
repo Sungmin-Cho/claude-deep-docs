@@ -3,7 +3,9 @@
 Document gardening agent for agent instruction files and project docs. The repo
 keeps Claude Code compatibility and exposes Codex-native manifest metadata.
 
-Current version: 1.3.1.
+To check the current version: `jq -r .version .claude-plugin/plugin.json`
+
+> 📄 Documentation in this repo follows `docs/DOCS_RULE.md` (local maintainer guide — single-source-of-truth rules for README / CHANGELOG / this file).
 
 ## Runtime Surfaces
 
