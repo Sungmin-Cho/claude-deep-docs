@@ -175,9 +175,14 @@ scan 결과를 기반으로 자동 수정합니다.
 
    garden 진입 시 `payload.gaps[]`를 **스냅샷으로 고정**한다 (세션 동안 불변). 치환 항목(`documents[].issues[]`)은 위 Step 3의 4+2 옵션 흐름을 **그대로** 따르고(불변), **authoring 항목(gaps[])은 다음 sub-flow**로 처리한다:
 
-   각 gap에 대해 (garden-ignored signature 체크 후 — §"garden-ignored.json 스키마"의 missing/thin signature):
+   각 gap에 대해 (garden-ignored signature 체크 후 — §"garden-ignored.json 스키마"의 missing/thin signature) 아래 단계를 **이 순서대로** 수행한다. **① baseline 캡처가 ② doc-author spawn보다 반드시 앞 단계**임에 주의 (spawn 후에 baseline을 잡으면 drafting 중 target 변경분이 baseline이 되어 TOCTOU 보호가 무력화된다 — 🔴):
 
-   a. **doc-author spawn** — Task 도구로:
+   a. **① TOCTOU baseline 캡처 — garden이 소유, doc-author spawn 전** (doc-author 아님 — Bash 없어 hash 계산 불가):
+      - **restructure**: garden이 doc-author **spawn 전에** `git hash-object <target_path>`로 baseline을 캡처해 보관한다.
+      - **create**: garden이 **spawn 전에** target 부재를 기록한다 (`lstat(target_path)` → 부재 확인).
+      - 이 단계는 반드시 ②(spawn)보다 **먼저** 실행된다. Write 직전 재확인은 ⑥에서 수행한다.
+
+   b. **② doc-author spawn** — Task 도구로 (①이 끝난 뒤):
       ```
       Task(subagent_type="doc-author", prompt="authoring_spec: {doc_kind, target_path, mode}.
       프로젝트 루트: {cwd}. git 사용 가능: {is_git}.
@@ -186,27 +191,31 @@ scan 결과를 기반으로 자동 수정합니다.
       ```
       → 구조화 result `{ draft_body, preserved_blocks[], removal_candidates[] }` 수신 (실패 시 `status: "degraded"` → audit-only 강등 + "수동 작성 권장").
 
-   b. **① TOCTOU baseline 캡처 — garden이 소유** (doc-author 아님 — Bash 없어 hash 계산 불가):
-      - **restructure**: garden이 doc-author spawn **전**에 `git hash-object <target_path>`로 baseline 캡처 → Write **직전** 재계산해 비교. 불일치(scan~Write 사이 변경)면 **fail-closed** ("이미 변경됨 — 재scan 또는 restructure로 전환?" 승인 요청).
-      - **create**: garden이 spawn 전 target 부재 기록 → Write **직전** `lstat(target_path)` — **존재/심볼릭이면 fail-closed** ("이미 존재 — 재scan 또는 restructure로 전환?" 승인 요청).
-
-   c. **② removal_candidates per-removal 승인** — 각 제거 후보에 대해 원본→draft 라인 diff를 보여주고 AskUserQuestion(2~3지선다):
+   c. **③ removal_candidates per-removal 승인** — 각 제거 후보에 대해 원본→draft 라인 diff를 보여주고 AskUserQuestion(2~3지선다):
       - **(적용)** 이 제거를 반영
       - **(수정요청)** doc-author에 재작업 요청 (또는 사용자가 직접 수정)
       - **(거부)** 이 블록 보존
       (라벨 `적용 / 수정요청 / 거부`는 garden 5지선다 A-E와 **별개로 공존**하는 authoring 전용 라벨.)
+      `create` 모드는 보통 `removal_candidates`가 비어 이 단계를 자연 건너뛴다 — 그래도 ⑤-A의 **draft 전체 승인은 create/restructure 양쪽 필수**다.
 
-   d. **③ 미승인 removal 재삽입** — 승인 안 한 removal_candidate를 `anchor` 위치(직전 heading 매칭, 없으면 말미)에 **재삽입**한다 → 승인 안 한 고유 콘텐츠는 기계적으로 보존(silent omit 불가).
+   d. **④ 미승인 removal 재삽입** — 승인 안 한 removal_candidate를 `anchor` 위치(직전 heading 매칭, 없으면 말미)에 **재삽입**한다 → 승인 안 한 고유 콘텐츠는 기계적으로 보존(silent omit 불가).
 
-   e. **④ preserved_blocks 검증** — `preserved_blocks[]`의 각 블록이 `draft_body`에 부분문자열로 존재하는지 확인. 누락 시 **fail-closed**(draft 거부 + 사용자 경고) — preserved 경로의 silent-drop 사각을 닫는다.
+   e. **⑤ preserved_blocks 검증 + draft 전체 승인**:
+      - **⑤-A preserved_blocks 검증** — `preserved_blocks[]`의 각 블록이 `draft_body`에 부분문자열로 존재하는지 확인. 누락 시 **fail-closed**(draft 거부 + 사용자 경고) — preserved 경로의 silent-drop 사각을 닫는다.
+      - **⑤-B draft_body 전체 승인 (create/restructure 양쪽 필수)** — 최종 `draft_body` 전문을 미리보기로 표시하고 AskUserQuestion(3지선다)으로 사용자 승인을 받는다:
+        - **(적용)** 이 draft로 Write 진행
+        - **(수정요청)** doc-author에 재작업 요청 (또는 사용자가 직접 수정 후 재검토)
+        - **(거부)** skip — Write 하지 않음 (선택적으로 garden-ignored 기록)
+        `create`는 `removal_candidates`가 비어 per-removal 승인을 안 거치므로, **이 전체 미리보기 승인이 빈/신규 레포에서 무승인 생성을 막는 유일한 게이트**다 (spec §4.4 "전체 draft 미리보기 + 승인"). **(적용)을 받은 경우에만** ⑥/⑦로 진행한다.
 
-   f. **⑤ target_path 재정규화 + byte 가드** — Write 직전:
+   f. **⑥ target_path 재정규화 + Write 직전 baseline 재확인 + byte 가드** — Write **직전**:
+      - **baseline 재확인 (①과 비교, fail-closed)**: **restructure** 는 `git hash-object <target_path>`를 재계산해 ①의 baseline과 비교 — 불일치(scan~Write 사이 변경)면 **fail-closed** ("이미 변경됨 — 재scan 또는 restructure로 전환?" 승인 요청). **create** 는 `lstat(target_path)` — **존재/심볼릭이면 fail-closed** ("이미 존재 — 재scan 또는 restructure로 전환?" 승인 요청).
       - `target_path` 재정규화: 절대경로 / `..` traversal / Windows separator(`\`) / drive-root(`C:`) / 심볼릭 링크 / `.gitignore` ignored 경로 **거부**, `doc_kind↔path` **root-only exact** 매칭 재확인(validator와 동일 allowlist predicate 공유 + symlink/ignored 추가 재확인).
       - **agents-md면** `draft_body`의 **UTF-8 byte ≤32KiB** 정확 확인 — 초과 시 fail-closed(분할/중첩 분산 제안). doc-author의 byte는 heuristic이므로 multibyte/long-line draft를 garden이 여기서 포착.
 
-   g. **garden이 Write** — b~f 모두 통과 시에만 garden(메인 세션)이 신규 생성 또는 기존 교체. doc-author는 절대 Write하지 않는다.
+   g. **⑦ garden이 Write** — ①~⑥ 모두 통과(특히 ⑤-B 전체 승인 + ⑥ baseline 재확인 일치) 시에만 garden(메인 세션)이 신규 생성 또는 기존 교체. doc-author는 절대 Write하지 않는다.
 
-   h. **cross-doc 포인터 / 공존 제안** — `authoring-rules/README.md` §cross-document 조건 충족 시: ARCHITECTURE.md가 존재/같은 세션 확정이면 CLAUDE/AGENTS에 참조 포인터 한 줄, CLAUDE↔AGENTS 거의 동일하면 공존 전략(심볼릭링크는 제안만, 승인 후 생성).
+   h. **⑧ cross-doc 포인터 / 공존 제안** — `authoring-rules/README.md` §cross-document 조건 충족 시: ARCHITECTURE.md가 존재/같은 세션 확정이면 CLAUDE/AGENTS에 참조 포인터 한 줄, CLAUDE↔AGENTS 거의 동일하면 공존 전략(심볼릭링크는 제안만, 승인 후 생성).
 
 4. audit-only 항목은 마지막에 참고로 표시:
    ```

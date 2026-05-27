@@ -200,6 +200,7 @@ legacy `1.0` payload 아티팩트는 가드 불일치로 **즉시 재-scan**(sel
 - `target_path` **root-only exact match** (`[R4:🔴 allowlist]` — `endsWith('/'+expected)` 는 `src/generated/CLAUDE.md` 같은 nested 를 통과시키므로 금지): `expected = {claude-md→CLAUDE.md, agents-md→AGENTS.md, architecture-md→ARCHITECTURE.md}[doc_kind]` 일 때 **`tp === expected` (root 문서) 만 허용**. spec §4.2 가 모노레포 하위 패키지를 v2 로 미루므로 v1 은 root-only — `pkg/CLAUDE.md`(1-level)·`src/generated/CLAUDE.md`(nested)·`fooCLAUDE.md`(접두) **모두 거부**. exact 비교 단일 predicate 로 모든 우회 차단(§4.2 와도 정합).
 - **거부**: 절대경로, `..` traversal, **Windows separator(`\`)·drive root(`C:`)**, 심볼릭 링크, `.gitignore` ignored 경로(§6 항목 9).
 - validator(`validate-envelope-emit.js`)는 enum + 위 정확-매칭 predicate + separator/traversal 거부를 검사하고 **negative fixtures**(traversal·nested·접두·backslash 각각)가 거부됨을 self-test. **validator 와 garden 은 동일 allowlist predicate 1개를 공유**(garden 은 Write 직전 symlink/ignored 까지 추가 재확인).
+- **type/exists/mode 일관성 + summary 정합** (구현 정합 — `validate-envelope-emit.js`): `type ∈ {missing-doc, thin-doc}`, `exists` boolean, 매핑 `missing-doc⇔exists:false⇔mode:create` / `thin-doc⇔exists:true`(mode 는 create/restructure 양쪽 허용); 모순 조합 거부. 추가로 `payload.summary.authoring === gaps[].length` + summary count 필드(total_issues/auto_fixable/authoring/audit_only) non-negative integer 강제.
 
 ---
 

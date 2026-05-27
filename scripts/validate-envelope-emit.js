@@ -43,6 +43,17 @@ const ALLOWED_GIT_KEYS = new Set(['head', 'branch', 'worktree', 'dirty']);
 const ALLOWED_PROVENANCE_KEYS = new Set(['source_artifacts', 'tool_versions']);
 const ALLOWED_SOURCE_ARTIFACT_KEYS = new Set(['path', 'run_id']);
 const ALLOWED_SCHEMA_KEYS = new Set(['name', 'version']);
+// payload.gaps[] (authoring) — write-path input, so its shape is locked too.
+const ALLOWED_GAP_KEYS = new Set([
+  'type', 'category', 'severity', 'target_path', 'exists', 'evidence', 'authoring_spec',
+]);
+const ALLOWED_AUTHORING_SPEC_KEYS = new Set(['doc_kind', 'mode', 'rationale']);
+const GAP_TYPES = new Set(['missing-doc', 'thin-doc']);
+const SUMMARY_COUNT_KEYS = ['total_issues', 'auto_fixable', 'authoring', 'audit_only'];
+
+function isNonNegInt(n) {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0;
+}
 
 const errors = [];
 function fail(msg) { errors.push(msg); }
@@ -226,16 +237,40 @@ function check(target) {
         if (!g || typeof g !== 'object' || Array.isArray(g)) {
           fail(`payload.gaps[${idx}] must be a non-null, non-array object`); return;
         }
+        reportUnknownKeys(g, ALLOWED_GAP_KEYS, `payload.gaps[${idx}]`, false);
         if (g.category !== 'authoring') fail(`payload.gaps[${idx}].category must be "authoring"`);
+        // type enum + exists boolean (write-path input — block malformed scanner output).
+        if (!GAP_TYPES.has(g.type)) {
+          fail(`payload.gaps[${idx}].type must be one of ${[...GAP_TYPES].join('|')} (got ${JSON.stringify(g.type)})`);
+        }
+        if (typeof g.exists !== 'boolean') {
+          fail(`payload.gaps[${idx}].exists must be boolean (got ${JSON.stringify(g.exists)})`);
+        }
         const sp = g.authoring_spec;
         if (!sp || typeof sp !== 'object' || Array.isArray(sp)) {
           fail(`payload.gaps[${idx}].authoring_spec must be a non-null object`); return;
         }
+        reportUnknownKeys(sp, ALLOWED_AUTHORING_SPEC_KEYS, `payload.gaps[${idx}].authoring_spec`, false);
         if (!(sp.doc_kind in DOC_KIND_TO_PATH)) {
           fail(`payload.gaps[${idx}].authoring_spec.doc_kind must be one of ${Object.keys(DOC_KIND_TO_PATH).join('|')}`);
         }
         if (sp.mode !== 'create' && sp.mode !== 'restructure') {
           fail(`payload.gaps[${idx}].authoring_spec.mode must be "create" or "restructure"`);
+        }
+        // type ⇔ exists ⇔ mode mapping (spec §4.5): missing-doc ⇔ exists:false ⇔ create;
+        // thin-doc ⇔ exists:true (mode create|restructure both allowed — thin docs may be
+        // augmented in place or rewritten). Reject the contradictory combinations.
+        if (g.type === 'missing-doc') {
+          if (g.exists !== false) {
+            fail(`payload.gaps[${idx}]: missing-doc must have exists:false (got ${JSON.stringify(g.exists)})`);
+          }
+          if (sp.mode !== 'create') {
+            fail(`payload.gaps[${idx}]: missing-doc must have authoring_spec.mode "create" (got ${JSON.stringify(sp.mode)})`);
+          }
+        } else if (g.type === 'thin-doc') {
+          if (g.exists !== true) {
+            fail(`payload.gaps[${idx}]: thin-doc must have exists:true (got ${JSON.stringify(g.exists)})`);
+          }
         }
         const tp = g.target_path;
         const expected = DOC_KIND_TO_PATH[sp.doc_kind];
@@ -254,6 +289,18 @@ function check(target) {
   }
   if (!pl.summary || typeof pl.summary !== 'object' || Array.isArray(pl.summary)) {
     fail('payload.summary must be a non-null, non-array object');
+  } else {
+    // Summary count fields must be non-negative integers (no sentinels / floats / negatives).
+    for (const k of SUMMARY_COUNT_KEYS) {
+      if (k in pl.summary && !isNonNegInt(pl.summary[k])) {
+        fail(`payload.summary.${k} must be a non-negative integer (got ${JSON.stringify(pl.summary[k])})`);
+      }
+    }
+    // summary.authoring must equal gaps[] length (D12: authoring counts gaps[], not issues[]).
+    const gapCount = Array.isArray(pl.gaps) ? pl.gaps.length : 0;
+    if ('authoring' in pl.summary && pl.summary.authoring !== gapCount) {
+      fail(`payload.summary.authoring (${JSON.stringify(pl.summary.authoring)}) must equal gaps[] length (${gapCount})`);
+    }
   }
   if (!pl.provenance || typeof pl.provenance !== 'object') {
     fail('payload.provenance must be an object');
