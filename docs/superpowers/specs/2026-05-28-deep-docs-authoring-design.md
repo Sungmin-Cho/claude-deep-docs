@@ -195,6 +195,12 @@ legacy `1.0` payload 아티팩트는 가드 불일치로 **즉시 재-scan**(sel
 
 → `sha256(type + "\|" + target_path + "\|" + preview[:200])`. C옵션(건너뜀+기록)으로 "이 프로젝트엔 ARCHITECTURE.md 불필요" 영구 skip 가능.
 
+**`[R3-plan:medium]` gap target 검증 (write 경로 입력 — validator + garden 양쪽 강제)**: `gaps[]` 가 garden 의 Write 입력이 되므로, malformed scan/scanner bug 가 의도 밖 경로로 Write 를 유도하지 못하게 다음을 **둘 다** 강제한다:
+- `authoring_spec.doc_kind` ∈ `{claude-md, agents-md, architecture-md}` (enum), `mode` ∈ `{create, restructure}` (enum).
+- `target_path` ∈ 허용 집합 — `doc_kind` 와 매핑 일치(`claude-md`→`CLAUDE.md`, `agents-md`→`AGENTS.md`, `architecture-md`→`ARCHITECTURE.md`; 모노레포는 `<pkg>/` prefix 까지만), **root-local 상대경로**.
+- **거부**: 절대경로, `..` traversal, 심볼릭 링크 target, `.gitignore` ignored 경로(§6 항목 9 와 동일).
+- validator(`validate-envelope-emit.js`)는 enum + doc_kind↔target_path 매핑 + traversal 거부를 검사하고 **negative fixture**(malformed gap)가 거부됨을 self-test. garden 은 Write 직전 동일 정규화 재확인(symlink/ignored 포함).
+
 ---
 
 ## 5. `doc-author` 에이전트 (신규) `[R1:F1,I3]`
@@ -203,14 +209,16 @@ legacy `1.0` payload 아티팩트는 가드 불일치로 **즉시 재-scan**(sel
 - **출력 계약 (구조화 — 확정)** `[R1:F1,C5][R2: codex high default-keep]`: doc-author 는 파일을 쓰지 않고(Write·Bash 없음) **구조화된 result 객체를 반환**한다:
   ```jsonc
   {
-    "base_hash": "<restructure 시 기존 문서의 git hash-object 값; create 는 null>",
+    "base_hash": "<restructure: 기존 문서의 git hash-object 값 | create: 문자열 \"<absent>\" sentinel>",
     "draft_body": "<생성/재구성된 문서 전문 — 단일 구획, 메타텍스트 미포함>",
     "preserved_blocks": ["<기존 문서에서 보존한 고유 콘텐츠 블록>", …],
     "removal_candidates": [ { "text": "<제거 후보 원문>", "reason": "<재생성 가능 근거>", "anchor": "<재삽입 기준 — 직전 heading 또는 draft_body 내 sentinel; R3:🟡-2>" }, … ]
   }
   ```
-  **garden 의 default-keep 기계적 강제** (codex high — prose 가 아닌 contract 로): garden 은
-  ① restructure 시 `base_hash` 로 기존 문서가 그 사이 변경되지 않았는지 확인(TOCTOU 방지),
+  **garden 의 default-keep + TOCTOU 기계적 강제** (codex high — prose 가 아닌 contract 로): garden 은
+  ① **Write 직전 target TOCTOU 재확인 (create/restructure 양쪽)** `[R3-plan:🔴 create-TOCTOU]`:
+     - **restructure**: `base_hash` == 현재 `git hash-object <target_path>` 인지 확인 — 불일치(scan 이후 변경)면 fail-closed(재scan).
+     - **create** (`base_hash == "<absent>"`): Write 직전 `lstat(target_path)` — **파일이 존재하거나 심볼릭 링크면 fail-closed**(scan~garden 사이 사용자/도구가 생성했을 수 있음 → "여전히 없음"으로 덮어쓰기 금지). 사용자에게 "이미 존재 — 재scan 또는 restructure 로 전환?" 승인 요청.
   ② `removal_candidates` 를 사용자에게 **per-removal 명시 승인** 요청,
   ③ **미승인 removal 은 `anchor` 위치(직전 heading 매칭, 없으면 말미) 에 재삽입한 뒤** Write — 승인 안 한 고유 콘텐츠는 기계적으로 보존(silent omit 불가),
   ④ `[R3:🟡-1]` **`preserved_blocks[]` 의 각 블록이 `draft_body` 에 부분문자열로 존재하는지 확인** — 누락 시 **fail-closed**(draft 거부 + 사용자 경고). preserved 경로의 silent-drop 사각을 닫는다(removal 경로만으로는 보존 미보장).
@@ -229,7 +237,7 @@ legacy `1.0` payload 아티팩트는 가드 불일치로 **즉시 재-scan**(sel
 
 ## 6. 안전성 / 엣지케이스 (D4 때문에 가장 중요)
 
-1. **원본 비파괴 — 권한 수준 완전 보장** `[R1:F1][R2]`: doc-author 는 **Write·Bash 둘 다 없으므로** 어떤 경로로도(직접 Write, shell redirection/`sed -i`/`tee`) target 문서를 쓸 수 없다. garden 만 승인 후 Write. restructure 도 §5 구조화 contract(base_hash 확인 + per-removal 승인 + 미승인 재삽입) 통과 후에만 garden 이 교체.
+1. **원본 비파괴 — 권한 수준 완전 보장 + TOCTOU** `[R1:F1][R2][R3-plan:🔴 create-TOCTOU]`: doc-author 는 **Write·Bash 둘 다 없으므로** 어떤 경로로도(직접 Write, shell redirection/`sed -i`/`tee`) target 문서를 쓸 수 없다. garden 만 승인 후 Write. **Write 직전 §5 ① TOCTOU 재확인 필수** — restructure 는 `base_hash` 일치, **create 는 `lstat` 로 여전히 부재인지** 확인(존재/심볼릭이면 fail-closed). scan~garden 사이 파일 생성(stale 재사용 scan/동시 편집/non-git)으로 인한 silent overwrite 방지. restructure 는 추가로 per-removal 승인 + 미승인 재삽입 통과 후에만 교체.
 2. **사용자 고유 콘텐츠 보존 — 메커니즘** `[R1:F6][R2: codex high]`: restructure 시 doc-author 는 다음 휴리스틱으로 분류한다 (authoring-rules 에 명문화):
    - **"재생성 가능"(→ `removal_candidates`)** = 코드/빌드설정/공식 규칙에서 **직접 도출 가능한** 문장만.
    - **그 외 전부 `preserved_blocks` 로 기본 보존(보수적 편향)** — 애매하면 보존.
@@ -296,7 +304,7 @@ legacy `1.0` payload 아티팩트는 가드 불일치로 **즉시 재-scan**(sel
 1. **버전 minor bump `1.3.1 → 1.4.0`**. 3곳 동기 + envelope `producer_version` literal **2곳**(`doc-scanner.md` 의 `producer_version="…"` **그리고** Step 12-B JSON 예시) `[R1:I1]` — verify-fixes 라인 56,60 둘 다 검사.
 2. **payload `schema.version` 1.0 → 1.1 (top-level `schema_version` 유지)** `[R1:F2][R2:N1][R3:🔴-1]`: §4.5 의 **compound 가드 분기표**를 따라 각 라인의 **payload 측만** `"1.1"` 로 교체(doc-scanner emit `:237`/contract `:291`/가드 `:334`, workflow SKILL `:32,53`, entry SKILL `:90,219`, validator `:115`) + fixture. **top-level `schema_version` 및 validator `:81-82` 는 유지** + verify-fixes 회귀 앵커. (누락/오치환 시 verify-fixes 차단 또는 영구 재-scan.)
 3. **cross-repo 순서 분리** `[R1:F2][R2:F7]`:
-   - **release 선행(blocking)**: claude-deep-suite `payload-registry` 의 last-scan schema 에 새 enum(`missing-doc`/`thin-doc`/`authoring`) + `gaps[]` + version 1.1 반영. v1.1 fixture(gaps[]+summary.authoring) 로 strict validation green 확인 **후** 플러그인 release.
+   - **release 선행 (deep-docs merge 전, blocking)** `[R3-plan:🔴 순서]`: deep-docs 가 v1.1 아티팩트(`schema.version 1.1`+`gaps[]`+새 enum)를 emit 하기 **전에** claude-deep-suite `payload-registry` + `validate-artifact.js` 가 이를 수용해야 한다(suite strict validator 가 1.1 을 거부하면 telemetry 깨짐). **워크플로우상 deep-docs merge(step 7) 직전 또는 동시에 suite registry 를 반영** — step 8(suite 작업)로 **미루면 v1.1 아티팩트가 registry 보다 먼저 나와 strict 거부/누락**(codex high). v1.1 fixture(gaps[]+summary.authoring)로 suite strict validation green 확인 후 marketplace rollout.
    - **metric 영향 없음**: deep-dashboard `aggregator.js` 는 `summary.total_issues`/`auto_fixable` 만 읽어 `auto_fix_accept_rate` 계산 → D12(total_issues=issues only) 로 비율 불변(코드 확인). `suite-collector.js` 의 ingest 게이트도 top-level `schema_version==="1.0"` 유지로 계속 작동.
    - **`[R3:🔴-2]` 알려진 한계 (dashboard gaps 비가시)**: deep-dashboard `action-router.js` 의 `docs-stale` 라우팅은 `documents[].issues[]` 만 순회하고 **`gaps[]` 를 읽지 않는다**. 따라서 **빈/신규 레포**(CLAUDE/ARCHITECTURE 부재 → `documents[]` 비고 `gaps[]` 만 참) 의 authoring 백로그는 dashboard 에 **0건으로 보인다**. deep-docs 는 `gaps[]` 를 올바르게 emit 하므로 **`/deep-docs scan|garden` 직접 실행으로는 정상 노출** — 기능 자체는 dashboard 무관하게 동작. dashboard 가 `gaps[]` 를 `docs-missing` finding 으로 산출하는 건 **deep-dashboard repo 후속**(§10). v1 한계로 README + §10 에 명시.
 4. `CHANGELOG.md`+`.ko.md` `[1.4.0]` 엔트리(Added: authoring/doc-author/authoring-rules/gaps[]; Changed: scan 이 빈 프로젝트에서도 동작, payload schema 1.1).

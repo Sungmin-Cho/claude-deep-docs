@@ -97,7 +97,8 @@ Expected: FAIL — `envelope.schema.version must be "1.0" for this release (got 
 `scripts/validate-envelope-emit.js`의 payload 검사부(`pl.documents` 블록 다음, `pl.summary` 검사 앞)에 추가:
 
 ```javascript
-  // payload.gaps[] (authoring; optional — absent in pre-1.1 / no-gap scans).
+  // payload.gaps[] (authoring; optional). [R3-plan:medium] write 경로 입력 — enum/매핑/traversal 강제.
+  const DOC_KIND_TO_PATH = { 'claude-md': 'CLAUDE.md', 'agents-md': 'AGENTS.md', 'architecture-md': 'ARCHITECTURE.md' };
   if ('gaps' in pl) {
     if (!Array.isArray(pl.gaps)) {
       fail('payload.gaps must be an array when present');
@@ -107,17 +108,33 @@ Expected: FAIL — `envelope.schema.version must be "1.0" for this release (got 
           fail(`payload.gaps[${idx}] must be a non-null, non-array object`); return;
         }
         if (g.category !== 'authoring') fail(`payload.gaps[${idx}].category must be "authoring"`);
-        if (typeof g.target_path !== 'string' || !g.target_path) fail(`payload.gaps[${idx}].target_path must be non-empty string`);
-        if (!g.authoring_spec || typeof g.authoring_spec !== 'object' || Array.isArray(g.authoring_spec)) {
+        const sp = g.authoring_spec;
+        if (!sp || typeof sp !== 'object' || Array.isArray(sp)) {
           fail(`payload.gaps[${idx}].authoring_spec must be a non-null object`); return;
         }
-        if (typeof g.authoring_spec.doc_kind !== 'string' || !g.authoring_spec.doc_kind) {
-          fail(`payload.gaps[${idx}].authoring_spec.doc_kind must be non-empty string`);
+        if (!(sp.doc_kind in DOC_KIND_TO_PATH)) {
+          fail(`payload.gaps[${idx}].authoring_spec.doc_kind must be one of ${Object.keys(DOC_KIND_TO_PATH).join('|')}`);
+        }
+        if (sp.mode !== 'create' && sp.mode !== 'restructure') {
+          fail(`payload.gaps[${idx}].authoring_spec.mode must be "create" or "restructure"`);
+        }
+        const tp = g.target_path;
+        if (typeof tp !== 'string' || !tp) {
+          fail(`payload.gaps[${idx}].target_path must be non-empty string`);
+        } else {
+          if (tp.startsWith('/') || tp.split('/').includes('..')) {
+            fail(`payload.gaps[${idx}].target_path must be root-local (no absolute path / ".." traversal)`);
+          }
+          if (sp.doc_kind in DOC_KIND_TO_PATH && !tp.endsWith(DOC_KIND_TO_PATH[sp.doc_kind])) {
+            fail(`payload.gaps[${idx}].target_path must end with ${DOC_KIND_TO_PATH[sp.doc_kind]} for doc_kind "${sp.doc_kind}"`);
+          }
         }
       });
     }
   }
 ```
+
+(symlink/ignored 경로 거부는 garden 의 Write-직전 검사가 담당 — validator 는 정적 JSON 만 보므로 enum/매핑/traversal 까지. spec §4.5.)
 
 - [ ] **Step 5: 버전 3곳 1.4.0으로 bump**
 
@@ -128,11 +145,18 @@ Expected: FAIL — `envelope.schema.version must be "1.0" for this release (got 
 Run: `node scripts/validate-envelope-emit.js`
 Expected: PASS — `✓ tests/fixtures/sample-last-scan.json matches deep-docs M3 envelope contract` (단, producer_version 1.4.0 == plugin.json 1.4.0 동기 확인됨)
 
+- [ ] **Step 6b: negative fixture(malformed gap) 거부 확인 `[R3-plan:medium]`**
+
+`tests/fixtures/sample-last-scan-invalid-gap.json` 생성 — valid envelope(schema 1.1, producer_version 1.4.0)이되 `payload.gaps[0]` 에 **traversal target_path**(예: `"target_path": "../../etc/CLAUDE.md"`, doc_kind `claude-md`). 이 fixture 로 validator 실행:
+
+Run: `node scripts/validate-envelope-emit.js tests/fixtures/sample-last-scan-invalid-gap.json`
+Expected: FAIL (exit 1) — `payload.gaps[0].target_path must be root-local (no absolute path / ".." traversal)`. (malformed gap 이 write 경로로 새기 전 validator 에서 거부됨을 증명.)
+
 - [ ] **Step 7: Commit**
 
 ```bash
-git add tests/fixtures/sample-last-scan.json scripts/validate-envelope-emit.js .claude-plugin/plugin.json .codex-plugin/plugin.json package.json
-git commit -m "feat(envelope): schema 1.1 + payload.gaps[] + bump to 1.4.0"
+git add tests/fixtures/sample-last-scan.json tests/fixtures/sample-last-scan-invalid-gap.json scripts/validate-envelope-emit.js .claude-plugin/plugin.json .codex-plugin/plugin.json package.json
+git commit -m "feat(envelope): schema 1.1 + payload.gaps[] (enum/traversal guard) + bump to 1.4.0"
 ```
 
 ---
@@ -299,7 +323,7 @@ git commit -m "feat(authoring): add authoring-rules references (CLAUDE/AGENTS/AR
 
 - [ ] **Step 1: deep-docs/SKILL.md에 authoring sub-flow 추가 (spec §4.4/§5/§6)**
 
-`skills/deep-docs/SKILL.md`의 `### /deep-docs garden` 절차에 authoring 분기 추가: 진입 시 `payload.gaps[]` 스냅샷 고정 → 치환 항목은 기존 4+2 옵션(불변) → authoring 항목은 sub-flow: doc-author spawn(Task subagent_type=doc-author, authoring_spec 전달) → 구조화 result 수신 → ① base_hash TOCTOU 확인(restructure) → ② removal_candidates per-removal 승인(AskUserQuestion 적용/수정요청/거부) → ③ 미승인 removal을 anchor 위치 재삽입 → ④ preserved_blocks가 draft_body에 존재 확인(누락 fail-closed) → garden이 Write → cross-doc 포인터/공존 제안(§7.4 조건). 세션 종료 시 1회 last-scan 삭제(≥1 변경). scan 리포트에 authoring 집계 추가. 재사용 가드의 `envelope.schema.version` payload 측 `"1.0"`→`"1.1"`(top-level `schema_version` 유지) — `:90`, `:219`.
+`skills/deep-docs/SKILL.md`의 `### /deep-docs garden` 절차에 authoring 분기 추가: 진입 시 `payload.gaps[]` 스냅샷 고정 → 치환 항목은 기존 4+2 옵션(불변) → authoring 항목은 sub-flow: doc-author spawn(Task subagent_type=doc-author, authoring_spec 전달) → 구조화 result 수신 → ① **Write 직전 TOCTOU 재확인(양쪽)** `[R3-plan:🔴 create-TOCTOU]`: restructure 는 `base_hash` == 현재 `git hash-object target` 일치, **create(`base_hash=="<absent>"`)는 `lstat target_path` 로 여전히 부재인지 확인 — 존재/심볼릭이면 fail-closed**(scan~garden 사이 생성됐을 수 있음; "이미 존재 — 재scan/restructure 전환?" 승인) → ② removal_candidates per-removal 승인(AskUserQuestion 적용/수정요청/거부) → ③ 미승인 removal을 anchor 위치 재삽입 → ④ preserved_blocks가 draft_body에 존재 확인(누락 fail-closed) → ⑤ **target_path 재정규화**(절대/traversal/symlink/ignored 거부, doc_kind↔path 매핑) → garden이 Write → cross-doc 포인터/공존 제안(§7.4 조건). 세션 종료 시 1회 last-scan 삭제(≥1 변경). scan 리포트에 authoring 집계 추가. 재사용 가드의 `envelope.schema.version` payload 측 `"1.0"`→`"1.1"`(top-level `schema_version` 유지) — `:90`, `:219`.
 
 - [ ] **Step 2: deep-docs-workflow/SKILL.md에 authoring 분기 + 가드 갱신 (spec §4.4)**
 
@@ -435,6 +459,6 @@ git commit -m "docs: v1.4.0 authoring — CHANGELOG/README/CLAUDE/AGENTS sync"
 
 ## 비범위 (spec §10)
 
-- deep-suite payload-registry enum/gaps[]/schema 1.1 반영(cross-repo, release 선행 — 워크플로우 step 8 deep-suite 작업에서) + deep-dashboard `action-router.js` gaps[] 소비(후속 release).
+- **deep-suite payload-registry enum/gaps[]/schema 1.1 반영 — deep-docs merge 전 또는 동시(release 선행, blocking)** `[R3-plan:🔴 순서]`: deep-docs 가 v1.1 아티팩트를 emit 하기 전에 suite `validate-artifact.js`/registry 가 1.1 을 수용해야 strict 거부/telemetry 누락이 없음. **워크플로우상 step 8(deep-suite)의 registry 부분을 step 7(merge) 앞으로 당김** — merge 후로 미루지 말 것. v1.1 fixture 로 suite strict validation green 확인 후 marketplace rollout. + deep-dashboard `action-router.js` 의 gaps[]→docs-missing 소비는 후속 release(빈-레포 비노출은 §9.7 한계 고지).
 - README/CHANGELOG/CONTRIBUTING authoring(v2), 모노레포 하위 패키지 missing-doc(v2), hook 안티패턴 탐지(v2), thin-doc 정량 임계값·doc-author model(§11 — 구현 중 dogfood).
 - spec 파일 자체 tracked 해제(`git rm --cached`)는 워크플로우 step 7(머지) 단계.
