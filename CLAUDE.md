@@ -257,10 +257,10 @@ Always emitting or always omitting breaks the garden reuse-guard: config toggle 
 
 ```bash
 npm run validate:envelope     # node scripts/validate-envelope-emit.js — envelope contract self-test
-npm run verify:fixes          # bash scripts/verify-fixes.sh — 43 grep-based release-lint checks
+npm run verify:fixes          # bash scripts/verify-fixes.sh — grep-based release-lint matrix (zero-install)
 ```
 
-There is no `npm test` integration runner — tests are fixture-based (sample envelope validated against schema) plus the `verify-fixes.sh` grep matrix. Latest release (v1.3.0) shipped at "Passed: 43, Failed: 0" (two `allowed-tools` assertions removed in the command→skill conversion).
+There is no `npm test` integration runner — tests are fixture-based (sample envelope validated against schema) plus the `verify-fixes.sh` grep matrix. The matrix grows each release (authoring checks added in v1.4.0); a green run (`Failed: 0`) is required before merge.
 
 ---
 
