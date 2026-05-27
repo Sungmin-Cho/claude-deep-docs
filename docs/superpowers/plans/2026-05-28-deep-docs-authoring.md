@@ -182,7 +182,7 @@ git commit -m "feat(envelope): schema 1.1 + payload.gaps[] (enum/traversal guard
 `agents/doc-scanner.md`에서 기존 `### 11. 결과 출력`→`### 12. 결과 출력`, `### 12. 결과 저장`→`### 13. 결과 저장`으로 번호 시프트. 그 사이에 `### 11. Gap 탐지 (Missing/Thin Doc — authoring)` 신설 — spec §4.2/§4.3: Glob으로 CLAUDE/AGENTS/ARCHITECTURE 존재 확인, 부재 시 missing-doc gap(가드 조건 충족 시), 존재하나 골격 미달 시 thin-doc gap. Step 9(coverage)의 `uncovered_modules[]` 재사용. 결과를 `payload.gaps[]`에 기록.
   **`[R3-plan:ℹ️-1]` scan-side gitignore 가드 (spec §6 item 9)**: Step 11 은 `.gitignore` 로 ignored 된 경로(특히 `docs/`)를 **gap 후보에서 제외**한다 — gap 이 scan 에서 먼저 생성되므로 scan-side 에서 걸러야 garden 까지 새지 않음(doc-author body 가드와 양쪽 대칭). scan-rules Rule 9 기술에도 "ignored 경로 제외" 명시.
 
-또한 Step 1("문서 발견")의 "없는 파일은 건너뛴다"를 "없는 권장 문서는 missing-doc gap 후보로 기록(Step 11에서 가드 적용)"으로 개조.
+또한 doc-scanner Step 1("문서 발견")이 glob 결과에서 **부재 권장문서(CLAUDE/AGENTS/ARCHITECTURE)를 gap 후보로 넘기도록** 보강(Step 11에서 가드 적용). `[R3-plan:opus ℹ️]` 참고: "없는 파일은 건너뛴다" 리터럴 자체는 doc-scanner 가 아니라 `skills/deep-docs-workflow/SKILL.md:76` "최소 1개 파일이 있어야 scan 실행 가능" 에 있으며 **Task 5 Step 2 가 그 위치를 개조**한다 — doc-scanner Step 1 은 glob 리스트만 산출하므로 여기선 "부재 문서를 gap 후보로 표시"만 추가.
 
 - [ ] **Step 3: doc-scanner.md emit(Step 13)에 gaps[]/summary.authoring/schema 1.1/producer_version 1.4.0 반영**
 
