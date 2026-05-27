@@ -7,6 +7,19 @@
 
 ---
 
+## [1.4.0] — 2026-05-28
+
+### 추가됨
+
+- **문서 작성(authoring)** — deep-docs가 없거나 빈약한 에이전트 지침 문서를 생성/재구성합니다. `scan`이 갭(부재한 `CLAUDE.md`/`AGENTS.md`/`ARCHITECTURE.md`, 또는 공식 골격에 미달하는 문서)을 탐지하고, `garden`이 새 `doc-author` 에이전트를 spawn해 코드 분석으로 문서 draft를 작성한 뒤 per-removal 승인 흐름을 거쳐 적용합니다.
+- 스캔 아티팩트의 `payload.gaps[]` — authoring 명세(`doc_kind`, `target_path`, `mode`)를 기존 문서 메트릭과 분리해 기록하여, 빈/신규 레포에서도 authoring 백로그가 드러납니다.
+
+### 변경됨
+
+- `scan`이 빈 프로젝트에서도 동작 — 문서가 하나도 없으면 종료하던 동작을 없애고, 없는 권장 문서를 `missing-doc` 갭으로 기록합니다 (빌드 매니페스트/규모 가드 충족 시; ignored 경로는 제외).
+- `garden`에 authoring sub-flow 추가: `doc-author`(읽기 전용)로 draft를 만들고, 사용자가 작성한 콘텐츠를 기본 보존(미승인 제거는 재삽입)하며, fail-closed 안전 검사를 통과한 뒤에만 씁니다.
+- 스캔 payload의 `envelope.schema.version`을 `1.0` → `1.1`로 bump (최상위 envelope `schema_version`은 `1.0` 유지).
+
 ## [1.3.1] — 2026-05-18 (Codex 네이티브 플러그인 매니페스트 및 AGENTS 가이드)
 
 ### 추가됨

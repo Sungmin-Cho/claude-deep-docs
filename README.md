@@ -59,7 +59,7 @@ Running `/deep-docs` with no argument prompts you to choose a subcommand interac
 
 ## Scan rules
 
-The scanner classifies every finding into one of two categories.
+The scanner classifies every finding into one of three categories.
 
 ### Auto-fixable (repaired by `garden`)
 
@@ -79,6 +79,15 @@ The scanner classifies every finding into one of two categories.
 | Coverage gaps | Major modules not mentioned anywhere in docs | "Major" is subjective |
 | Map vs manual ratio | Ratio of direct instructions to external pointers | Optimal ratio varies per project |
 
+### Authoring (created/restructured by `garden`)
+
+| Rule | Description | How it is handled |
+|---|---|---|
+| Missing doc | A recommended `CLAUDE.md`/`AGENTS.md` (build manifest + source dirs) or `ARCHITECTURE.md` (~10k+ LOC) does not exist | `garden` drafts it from a code analysis and writes it after approval |
+| Thin doc | An existing doc falls clearly short of its official skeleton | `garden` restructures it, preserving your unique content by default |
+
+Authoring uses built-in rules from `skills/deep-docs-workflow/references/authoring-rules/` (CLAUDE.md follows Anthropic's memory guide, AGENTS.md the OpenAI Codex/agents.md standard, ARCHITECTURE.md the matklad standard). Length targets are soft for `CLAUDE.md`/`ARCHITECTURE.md` line counts (an over-long draft is reported as a non-blocking size warning, matching the line-based `audit`), while `AGENTS.md` enforces a hard 32&nbsp;KiB byte ceiling (Codex truncates beyond it) — note this byte/line asymmetry: authoring considers the Codex byte budget, `audit` stays line-based.
+
 ## Garden workflow
 
 When you run `/deep-docs garden`, the agent:
@@ -86,9 +95,12 @@ When you run `/deep-docs garden`, the agent:
 1. **Reuses** `.deep-docs/last-scan.json` if it is fresh (under 10 minutes old, matching HEAD and worktree); otherwise re-runs the scan first.
 2. **Filters to auto-fixable issues** only — size warnings stay in the audit-only summary.
 3. **For each issue**, shows a diff and asks for confirmation before applying the edit.
-4. **Summarizes** fixes applied, skipped, and audit-only items noted for reference.
+4. **Authoring sub-flow** — for each `gaps[]` entry, `garden` spawns the read-only `doc-author` agent, receives a structured draft, captures a TOCTOU baseline (so a file changed since the scan is never silently overwritten), asks per-removal whether to apply / revise / keep, re-inserts any unapproved removals, and only then writes the file itself. `doc-author` never writes — it has no `Write` or `Bash` tool.
+5. **Summarizes** fixes applied, documents authored, skipped, and audit-only items noted for reference.
 
 Audit-only items are always shown at the end as informational notes, never modified automatically.
+
+> **Empty/new-repo note:** authoring gaps surface through `/deep-docs scan|garden` directly. Until deep-dashboard consumes `gaps[]`, the authoring backlog for an empty or brand-new repository (no existing documents) is **not visible on the dashboard** — the document-health metrics there only count issues found in existing documents.
 
 ## Audit metrics
 

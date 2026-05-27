@@ -59,7 +59,7 @@ claude plugin add https://github.com/Sungmin-Cho/claude-deep-docs.git
 
 ## 스캔 규칙
 
-스캐너는 모든 발견 사항을 두 가지 카테고리로 분류합니다.
+스캐너는 모든 발견 사항을 세 가지 카테고리로 분류합니다.
 
 ### Auto-fix 가능 (`garden`으로 수정)
 
@@ -79,6 +79,15 @@ claude plugin add https://github.com/Sungmin-Cho/claude-deep-docs.git
 | 커버리지 갭 | 주요 모듈이 문서에 전혀 언급되지 않는 경우 | "주요"의 판단이 주관적 |
 | 맵 vs 매뉴얼 비율 | 직접 지침 대 외부 포인터의 비율 | 최적 비율이 프로젝트마다 다름 |
 
+### Authoring (`garden`이 생성/재구성)
+
+| 규칙 | 설명 | 처리 방법 |
+|---|---|---|
+| 부재 문서 | 권장 `CLAUDE.md`/`AGENTS.md`(빌드 매니페스트 + 소스 디렉토리) 또는 `ARCHITECTURE.md`(~10k+ LOC)가 없는 경우 | `garden`이 코드 분석으로 draft를 작성해 승인 후 기록 |
+| 빈약 문서 | 기존 문서가 공식 골격에 명백히 미달하는 경우 | `garden`이 고유 콘텐츠를 기본 보존하며 재구성 |
+
+Authoring은 `skills/deep-docs-workflow/references/authoring-rules/`의 내장 규칙을 사용합니다 (CLAUDE.md는 Anthropic 메모리 가이드, AGENTS.md는 OpenAI Codex/agents.md 표준, ARCHITECTURE.md는 matklad 표준). 길이 목표는 `CLAUDE.md`/`ARCHITECTURE.md` 줄 수에 대해 soft이며(과도하게 긴 draft는 비차단 size-warning으로 보고 — 줄 기반 `audit`과 대칭), `AGENTS.md`는 32&nbsp;KiB 바이트 hard 차단선을 강제합니다(Codex가 초과분을 잘라냄) — 이 바이트/줄 비대칭에 유의: authoring은 Codex 바이트 예산을 고려하고 `audit`은 줄 기반을 유지합니다.
+
 ## Garden 워크플로
 
 `/deep-docs garden`을 실행하면 에이전트가:
@@ -86,9 +95,12 @@ claude plugin add https://github.com/Sungmin-Cho/claude-deep-docs.git
 1. `.deep-docs/last-scan.json`이 신선하면(10분 이내, HEAD 및 워크트리 일치) **재사용**하고, 그렇지 않으면 먼저 스캔을 다시 실행합니다.
 2. auto-fix 가능 항목만 **추출**합니다 — 크기 경고는 audit-only 요약에 남습니다.
 3. 각 항목에 대해 diff를 보여주고 수정을 적용하기 전에 **확인을 요청**합니다.
-4. 적용된 수정, 건너뜀, 참고용 audit-only 항목을 **요약**합니다.
+4. **Authoring sub-flow** — 각 `gaps[]` 항목에 대해 `garden`이 읽기 전용 `doc-author` 에이전트를 spawn해 구조화 draft를 받고, TOCTOU baseline을 캡처하며(스캔 이후 변경된 파일을 조용히 덮어쓰지 않음), 각 제거 후보에 대해 적용/수정요청/거부를 묻고, 미승인 제거를 재삽입한 뒤에만 파일을 직접 씁니다. `doc-author`는 절대 쓰지 않습니다 — `Write`/`Bash` 도구가 없습니다.
+5. 적용된 수정, 작성된 문서, 건너뜀, 참고용 audit-only 항목을 **요약**합니다.
 
 Audit-only 항목은 항상 마지막에 참고 사항으로 표시되며 자동으로 수정되지 않습니다.
+
+> **빈/신규 레포 참고:** authoring 갭은 `/deep-docs scan|garden` 직접 실행으로 노출됩니다. deep-dashboard가 `gaps[]`를 소비하기 전까지, 기존 문서가 없는 빈/신규 레포의 authoring 백로그는 **대시보드에 비노출**됩니다 — 대시보드의 문서 건강 메트릭은 기존 문서에서 발견된 이슈만 집계하기 때문입니다.
 
 ## Audit 지표
 
