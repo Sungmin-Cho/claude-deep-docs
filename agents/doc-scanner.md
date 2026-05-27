@@ -57,6 +57,8 @@ Glob으로 대상 문서 탐색 (다음 디렉토리는 제외: node_modules/, v
 - `docs/**/*.md`
 - `CONTRIBUTING.md`, `ARCHITECTURE.md`
 
+본 Step은 **glob 리스트만 산출**한다 (존재하는 문서). 권장 문서(CLAUDE.md / AGENTS.md / ARCHITECTURE.md) 중 **glob에 없는(부재) 항목은 gap 후보로 넘긴다** — 무차별 생성 가드 및 gap 명세 기록은 **Step 11(Gap 탐지)**이 담당한다. (즉 Step 1은 "부재 권장문서를 gap 후보로 표시"만 하고 종료 판단을 하지 않는다 — 빈/신규 레포의 authoring 경로.)
+
 ### 2. 참조 추출
 <!-- Step 2 → scan-rules.md Rule 1(Dead References)의 "탐지" 단계. reference-extraction.md + code-fence.md 필터 조합. -->
 
@@ -151,17 +153,55 @@ rename 이력이 있으면 새 경로를 기록.
 문서 내 직접 지침 vs 외부 포인터(링크, "참조" 등) 비율 측정.
 분류: audit-only (표시만)
 
-### 11. 결과 출력
-<!-- Step 11 → auto-fix/audit-only 분류 + 리포트 구조화. -->
+### 11. Gap 탐지 (Missing/Thin Doc — authoring)
+<!-- Step 11 → scan-rules.md Rule 9. 권장 문서 부재/빈약을 payload.gaps[]에 명세로 기록. draft 본문은 garden(doc-author)에서 생성. -->
+
+`skills/deep-docs-workflow/references/scan-rules.md`의 **Rule 9 (Missing/Thin Doc)** 분류에 따라 권장 문서(CLAUDE.md / AGENTS.md / ARCHITECTURE.md)의 부재/빈약을 탐지한다. **scan은 명세(gap)만 기록**하고 draft 본문은 garden의 authoring sub-flow가 `doc-author` spawn으로 생성한다.
+
+1. **존재 확인**: Step 1(문서 발견)의 glob 리스트를 입력으로, 루트의 `CLAUDE.md` / `AGENTS.md` / `ARCHITECTURE.md` 존재 여부를 확인. (Step 1은 glob 리스트만 산출하고, 부재 권장문서를 gap 후보로 표시한다 — 가드 적용은 본 Step.)
+
+2. **missing-doc gap** (`exists: false`, category `authoring`) — 부재 시, 다음 **가드를 충족할 때만** gap 생성:
+   - CLAUDE.md / AGENTS.md → git 루트에 빌드 매니페스트(`package.json` / `Cargo.toml` / `pyproject.toml` / `go.mod` 등) + 소스 디렉토리 존재. severity `medium`.
+   - ARCHITECTURE.md → ~10k LOC+ 규모. severity `high`.
+   - 모노레포는 루트만 1차 후보(하위 패키지는 v2 — root-only).
+
+3. **thin-doc gap** (`exists: true`, category `authoring`) — 존재하나 공식 골격 대비 미달 시. **보수적 판정**(명백한 미달만). Step 9(coverage)의 `uncovered_modules[]`를 **재사용**해 (a) 필수 섹션 누락 수 ≥ 임계값 OR (b) 커버리지 갭 비율 과다로 판정. severity `low`~`medium`.
+
+4. **`[R3-plan:ℹ️-1]` scan-side gitignore 가드** (spec §6 항목 9): `.gitignore`로 ignored된 경로(특히 `docs/`)는 **gap 후보에서 제외**한다 — gap이 scan에서 먼저 생성되므로 scan-side에서 걸러야 garden까지 새지 않는다(doc-author body 가드와 양쪽 대칭).
+
+5. **gap 명세 기록**: 각 gap을 `payload.gaps[]`에 다음 shape으로 기록 (Step 13 emit):
+   ```json
+   {
+     "type": "missing-doc",
+     "category": "authoring",
+     "severity": "high",
+     "target_path": "ARCHITECTURE.md",
+     "exists": false,
+     "evidence": "12k LOC, no ARCHITECTURE.md",
+     "authoring_spec": {
+       "doc_kind": "architecture-md",
+       "mode": "create",
+       "rationale": "large codebase lacks architecture map"
+     }
+   }
+   ```
+   - `target_path`는 **root-only exact**(`CLAUDE.md` / `AGENTS.md` / `ARCHITECTURE.md`) — nested / 접두 / traversal 금지(validator + garden 양쪽 강제).
+   - `authoring_spec.doc_kind` ∈ `{claude-md, agents-md, architecture-md}`, `mode` ∈ `{create(missing-doc), restructure(thin-doc)}`.
+
+### 12. 결과 출력
+<!-- Step 12 → auto-fix/audit-only/authoring 분류 + 리포트 구조화. -->
 
 `skills/deep-docs-workflow/references/scan-rules.md`의 분류에 따라 결과를 구조화:
 - auto-fix 항목: 🔴 또는 🟡 + "[auto-fix 가능]" 태그
+- authoring 항목 (gaps[]): 📄 + "[authoring]" 태그 (missing-doc / thin-doc)
 - audit-only 항목: ℹ️ + "[audit-only]" 태그
+
+리포트 집계는 `auto-fix N · authoring M · audit-only K` 형태로 표시.
 
 결과를 JSON 파일로 저장하여 garden과 audit에서 재사용 가능하게 함.
 
-### 12. 결과 저장 (Durable Scan Artifact, M3 envelope)
-<!-- Step 12 → .deep-docs/last-scan.json 저장 (M3 envelope, payload schema 1.0). worktree-hash.md 필터로 payload provenance 계산. -->
+### 13. 결과 저장 (Durable Scan Artifact, M3 envelope)
+<!-- Step 13 → .deep-docs/last-scan.json 저장 (M3 envelope, payload schema 1.1). worktree-hash.md 필터로 payload provenance 계산. -->
 
 결과는 **claude-deep-suite M3 공통 envelope**에 wrap하여 `.deep-docs/last-scan.json`에 저장한다 (`docs/envelope-migration.md` §1, §4 참조). envelope 필드 계산은 Bash로 수행한다.
 
@@ -181,7 +221,7 @@ git rev-parse --abbrev-ref HEAD                     # branch
 # 부재하므로 cwd-relative read 로는 해결 불가. 매 릴리스마다 deep-docs/.claude-plugin/plugin.json
 # 의 version 과 일치하는 literal 을 envelope.producer_version 에 직접 emit 한다.
 # scripts/verify-fixes.sh 가 literal ↔ plugin.json.version 동기 검증 (release lint).
-producer_version="1.3.1"   # ← deep-docs plugin release literal (sync with .claude-plugin/plugin.json)
+producer_version="1.4.0"   # ← deep-docs plugin release literal (sync with .claude-plugin/plugin.json)
 
 # tool_versions
 node --version
@@ -230,11 +270,11 @@ non-git 환경에서는 git fallback 사용:
   "schema_version": "1.0",
   "envelope": {
     "producer": "deep-docs",
-    "producer_version": "1.3.1",
+    "producer_version": "1.4.0",
     "artifact_kind": "last-scan",
     "run_id": "01KR0J7WBXJS57PBM04MYPHENX",
     "generated_at": "2026-05-07T10:00:00Z",
-    "schema": { "name": "last-scan", "version": "1.0" },
+    "schema": { "name": "last-scan", "version": "1.1" },
     "git": { "head": "abc1234", "branch": "main", "dirty": false },
     "provenance": {
       "source_artifacts": [
@@ -275,8 +315,24 @@ non-git 환경에서는 git fallback 사용:
     "summary": {
       "total_issues": 5,
       "auto_fixable": 3,
+      "authoring": 1,
       "audit_only": 2
-    }
+    },
+    "gaps": [
+      {
+        "type": "missing-doc",
+        "category": "authoring",
+        "severity": "high",
+        "target_path": "ARCHITECTURE.md",
+        "exists": false,
+        "evidence": "12k LOC, no ARCHITECTURE.md",
+        "authoring_spec": {
+          "doc_kind": "architecture-md",
+          "mode": "create",
+          "rationale": "large codebase lacks architecture map"
+        }
+      }
+    ]
   }
 }
 ```
@@ -288,7 +344,7 @@ non-git 환경에서는 git fallback 사용:
 - `envelope.producer_version` === `.claude-plugin/plugin.json` 의 `version` (단일 진실원본).
 - `envelope.artifact_kind` === `"last-scan"`.
 - `envelope.schema.name` === `"last-scan"` (artifact_kind 와 동일 — Phase 1 round-4 identity check).
-- `envelope.schema.version` === `"1.0"` — payload schema 버전.
+- `envelope.schema.version` === `"1.1"` — payload schema 버전 (v1.4.0: gaps[]/authoring enum 추가로 1.0→1.1 minor bump).
 - `envelope.run_id` === ULID 26자 Crockford Base32 (`^[0-9A-HJKMNP-TV-Z]{26}$`, `O/I/L/U` 제외).
 - `envelope.git.head` === 7~40 hex (non-git 시 sentinel `"0000000"`).
 - `envelope.git.dirty` ∈ `{true, false, "unknown"}`.
@@ -300,8 +356,9 @@ non-git 환경에서는 git fallback 사용:
 - `payload.provenance.is_git` (bool)
 - `payload.provenance.worktree_hash` (sha1 40-hex 또는 `"no-git"`) — `scan-filters/worktree-hash.md` 필터로 계산
 - `payload.provenance.path_check_enabled` (bool, **optional**) — `scan-filters/cli-whitelist.md` 의 `$PATH` 체크가 ON 일 때만 emit (`true`). OFF 일 때는 omit. **emit 방식**: Step 12-A 의 `PATH_CHECK_EMIT` 변수를 `payload.provenance` block 의 `worktree_hash` 라인 위에 삽입 — OFF 면 빈 문자열로 자연스럽게 omit, ON 면 `"path_check_enabled": true,` 한 줄 추가. 재사용 4-요소 규칙의 `prov.get("path_check_enabled", False) != bool(config.enable_path_check)` 비교에 사용.
-- `payload.documents[]` — 각 항목 `{ path, issues[], metrics }`
-- `payload.summary` — `{ total_issues, auto_fixable, audit_only }`
+- `payload.documents[]` — 각 항목 `{ path, issues[], metrics }` (**존재하는 문서만**)
+- `payload.gaps[]` (**optional, authoring**) — 부재/빈약 권장문서 명세. 각 항목 `{ type(missing-doc|thin-doc), category("authoring"), severity, target_path(root-only exact), exists, evidence, authoring_spec{ doc_kind, mode, rationale } }`. draft 본문은 포함하지 않음 (garden 의 doc-author 가 생성). missing/thin 은 존재 문서 metrics 와 섞이지 않도록 `documents[]` 가 아닌 **별도 `gaps[]`** 에 둔다. **`gaps[]` 는 reuse 5-요소 가드 입력이 아니다** — worktree_hash 에서 파생된 산출이므로 reuse 에 영향 없음.
+- `payload.summary` — `{ total_issues, auto_fixable, authoring, audit_only }`. **`total_issues` 는 `documents[].issues[]` 만 집계(gaps 제외)** — dashboard metric 보존 (D12). `auto_fixable` / `audit_only` 도 issues[] 기준. `authoring` = `gaps[]` 길이 별도 카운트.
 
 > 이전 (v1.1.0) shape 의 root-level `scanned_at`, `schema_version: 2`, `provenance.head_sha`, `provenance.branch` 는 envelope 으로 흡수되어 payload 에서 제거됐다. `scanned_at` 은 `envelope.generated_at`, `head_sha/branch` 는 `envelope.git`. payload 측 `provenance` 는 plugin-specific 필드 (`is_git`, `worktree_hash`, optional `path_check_enabled`) 만 보존 (cli-whitelist.md `$PATH` 체크 ON 시 `path_check_enabled: true` emit, OFF 시 omit).
 
@@ -331,7 +388,7 @@ garden/audit 실행 시 `.deep-docs/last-scan.json` 확인 (재사용 규칙, en
    - `envelope.producer === "deep-docs"`
    - `envelope.artifact_kind === "last-scan"`
    - `envelope.schema.name === "last-scan"`
-1. `schema_version === "1.0"` (top-level) **AND** `envelope.schema.version === "1.0"` — envelope wrapper + payload schema 양쪽 일치. 미스매치 시 재-scan
+1. `schema_version === "1.0"` (top-level) **AND** `envelope.schema.version === "1.1"` — envelope wrapper + payload schema 양쪽 일치. 미스매치 시 재-scan (legacy payload `1.0` 아티팩트는 즉시 재-scan)
 2. `envelope.generated_at`이 현재 기준 10분 이내 (RFC 3339 → epoch 변환 후 비교)
 3. `envelope.git.head === git rev-parse HEAD` (git 환경만)
 4. `payload.provenance.worktree_hash === scan-filters/worktree-hash.md 재계산값` (git 환경만)

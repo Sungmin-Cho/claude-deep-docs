@@ -29,6 +29,7 @@
 | Rule 6 (Rule-Code Contradiction) — audit-only | Step 8 |
 | Rule 7 (Coverage Gap) — audit-only | Step 9 |
 | Rule 8 (Map vs Manual) — audit-only | Step 10 |
+| Rule 9 (Missing/Thin Doc) — authoring | Step 11 |
 
 구현자 참고: Rule은 분류 기준, Step은 실행 순서. 두 번호 체계는 동일 작업을 다른 관점에서 참조.
 
@@ -120,3 +121,36 @@
 
 이유: 최적 비율이 프로젝트마다 다름.
 표시: ℹ️ 참고 — "직접 지침 {N}%, 외부 포인터 {N}%"
+
+---
+
+## Authoring (garden에서 생성/재구성)
+
+스캔이 기존 문서를 **수정**하는 auto-fix/audit-only와 달리, authoring은 권장 문서가 **없거나 골격에 미달**할 때 garden이 `doc-author`를 통해 **draft를 생성/재구성**하는 카테고리다. scan(doc-scanner Step 11)은 **명세(gap)만** 기록하고 draft 본문은 garden에서 생성한다.
+
+### 9. 부재/빈약 문서 (Missing/Thin Doc) — authoring
+
+권장 에이전트 지침 문서(CLAUDE.md / AGENTS.md / ARCHITECTURE.md)가 **없거나**(missing-doc), 있으나 **공식 골격 대비 명백히 미달**(thin-doc)인 경우.
+
+탐지 방법 (doc-scanner Step 11):
+
+- **`missing-doc`** (category: `authoring`, `exists: false`) — 권장 문서가 아예 없음. **무차별 생성 가드**:
+  - CLAUDE.md / AGENTS.md → git 루트에 **빌드 매니페스트**(`package.json` / `Cargo.toml` / `pyproject.toml` / `go.mod` 등)가 있고 **소스 디렉토리가 존재**할 때만 후보.
+  - ARCHITECTURE.md → **~10k LOC+** 규모에서만 후보.
+  - **모노레포는 루트만 1차 후보, 하위 패키지는 v2** (root-only).
+- **`thin-doc`** (category: `authoring`, `exists: true`) — 문서는 있으나 공식 골격 대비 미달. **scan 판정은 보수적**(명백한 미달만). Rule 7(Coverage Gap, Step 9)의 `uncovered_modules[]`를 **입력 신호로 재사용**해 다음 OR로 판정:
+  - (a) 공식 골격의 **필수 섹션 누락 수** ≥ 임계값, **OR**
+  - (b) `len(uncovered_modules[]) / total_modules` ≥ 임계값(커버리지 갭 과다).
+
+  Rule 7은 audit-only 보고(존재 문서의 갭), Rule 9는 그 신호를 authoring 판정에 재사용 — **중복 스캔 없이** Step 9 산출을 Step 11이 읽는다. (정량 임계값은 `authoring-rules/`에 명문화.)
+- **ignored 경로 제외**: `.gitignore`로 ignored된 경로(특히 `docs/`)는 gap 후보에서 **제외**한다 — gap이 scan에서 먼저 생성되므로 scan-side에서 걸러야 garden까지 새지 않는다 (doc-author body 가드와 양쪽 대칭).
+
+severity 부여:
+
+| 케이스 | severity |
+|---|---|
+| missing-doc (CLAUDE / AGENTS) | `medium` |
+| missing-doc ARCHITECTURE (10k+ LOC) | `high` (유지보수 비용 10배) |
+| thin-doc | `low` ~ `medium` (미달 정도) |
+
+분류: **authoring** — `current_value → suggested_value` 한 줄 치환 모델에 맞지 않으므로 auto-fix가 아니다. `payload.gaps[]`에 `authoring_spec`(doc_kind / mode / rationale)으로 emit되고, garden의 authoring sub-flow가 `doc-author` spawn → 구조화 draft → per-removal 승인 후 **garden만** Write한다.
