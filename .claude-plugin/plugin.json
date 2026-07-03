@@ -5,10 +5,7 @@
   "author": {
     "name": "Sungmin-Cho"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Sungmin-Cho/claude-deep-docs.git"
-  },
+  "repository": "https://github.com/Sungmin-Cho/claude-deep-docs.git",
   "license": "MIT",
   "category": "Productivity",
   "keywords": ["documentation", "gardening", "claude-md", "agents-md", "freshness"]
