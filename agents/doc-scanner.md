@@ -260,7 +260,7 @@ non-git 환경에서는 git fallback 사용:
 - `branch = "HEAD"`
 - `dirty = "unknown"` (literal string, envelope schema 허용값)
 
-**Step 12-B. envelope 객체 조립 + Write**
+**Step 12-B. envelope 객체 조립 + atomic write + emit 자가검증**
 
 `.deep-docs/last-scan.json` 에 다음 형태로 저장:
 
@@ -336,6 +336,21 @@ non-git 환경에서는 git fallback 사용:
   }
 }
 ```
+
+**atomic write 절차** (부분 쓰기로 인한 corrupt/partial envelope 를 소비자가 읽는 것 방지 — 이 에이전트가 명시하는 "atomic write" 주장과 구현 일치):
+
+1. 위 객체를 최종 경로에 곧바로 쓰지 말고, 먼저 `.deep-docs/last-scan.json.tmp` 에 Write 한다.
+2. `mv .deep-docs/last-scan.json.tmp .deep-docs/last-scan.json` 로 원자적 교체한다 (같은 디렉터리 내 rename 은 POSIX atomic — reader 는 old 또는 new 완본만 관측).
+
+**emit 자가검증** (write 직후, 완료 선언 전 — 방금 쓴 실 아티팩트를 fixture 가 아니라 직접 검증):
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/validate-envelope-emit.js .deep-docs/last-scan.json
+```
+
+- exit 0 → 통과. 아티팩트를 최종 결과로 신뢰하고 완료를 선언한다.
+- 비-0 종료 → 필드 누락·`producer_version` 오기·schema 미스매치 등. 아티팩트를 신뢰하지 말고 stderr(`validate-envelope-emit:` prefix)의 지적을 반영해 **Step 12-A 부터 재-emit** 한다. 검증 통과 전까지 완료를 선언하지 않는다.
+- validator 는 자신의 설치 경로 기준으로 `deep-docs/.claude-plugin/plugin.json` 을 읽으므로 (cwd 무관), 사용자 프로젝트 cwd 에서 실행해도 `producer_version` literal ↔ plugin 정본 동기 검사가 정상 동작한다.
 
 **중요한 envelope contract**:
 
