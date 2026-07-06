@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.1] — 2026-07-07
+
+### Fixed
+
+- `reuse-cache` — the `can_reuse_scan` reuse guard checked the payload `schema.version` against the stale `1.0` value after the v1.4.0 scan payload moved to `1.1`, so a valid cached scan was always rejected as version-mismatched. The check is re-aligned to `1.1`.
+- Step 12-B (scan artifact emit) now self-validates the envelope before writing, so a malformed payload fails closed at emit time instead of being persisted and surfacing later as a corrupt cache.
+- Step 12-B write is hardened to an atomic write (temp + rename), so an interrupted emit can no longer leave a half-written `last-scan.json`.
+
 ## [1.4.0] — 2026-05-28
 
 ### Added
