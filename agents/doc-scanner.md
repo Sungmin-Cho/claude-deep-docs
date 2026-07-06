@@ -344,12 +344,21 @@ non-git 환경에서는 git fallback 사용:
 
 **emit 자가검증** (write 직후, 완료 선언 전 — 방금 쓴 실 아티팩트를 fixture 가 아니라 직접 검증):
 
+validator 실행 전 **preflight 가드**로 실행 가능 여부를 먼저 확인한다. `${CLAUDE_PLUGIN_ROOT}` 는 deep-docs 에 사용 선례가 없고 (이를 export 하는 hooks.json 도 없음), doc-scanner 는 Task-dispatch 서브에이전트라 env 상속이 보장되지 않는다 — 무가드 실행은 변수 미설정 시 `node /scripts/...` 로 크래시한다:
+
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/validate-envelope-emit.js .deep-docs/last-scan.json
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/scripts/validate-envelope-emit.js" ]; then
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/validate-envelope-emit.js" .deep-docs/last-scan.json
+    # exit code 로 분기 (아래 규칙)
+else
+    # 가드 미충족: validator 경로 확인 불가. 검증 불가가 emit 자체를 막으면 안 됨 (fail-open).
+    echo "warning: emit 자가검증 skip — CLAUDE_PLUGIN_ROOT 미설정 또는 validate-envelope-emit.js 없음" >&2
+fi
 ```
 
-- exit 0 → 통과. 아티팩트를 최종 결과로 신뢰하고 완료를 선언한다.
-- 비-0 종료 → 필드 누락·`producer_version` 오기·schema 미스매치 등. 아티팩트를 신뢰하지 말고 stderr(`validate-envelope-emit:` prefix)의 지적을 반영해 **Step 12-A 부터 재-emit** 한다. 검증 통과 전까지 완료를 선언하지 않는다.
+- **가드 미충족 (skip)** → 검증을 건너뛰고 그대로 진행한다 (**fail-open**). scan 결과에 "emit 자가검증이 skip 되었음 + 사유(validator 경로 확인 불가)"를 warning 으로 명시한다. **재-emit 대상이 아니다** — 아티팩트는 이미 정상 write 되었고, 검증기를 못 찾은 것은 emit 결함을 뜻하지 않는다.
+- **exit 0 (통과)** → 아티팩트를 최종 결과로 신뢰하고 완료를 선언한다.
+- **비-0 종료 (검증 실패)** → 필드 누락·`producer_version` 오기·schema 미스매치 등 실제 emit 결함. stderr(`validate-envelope-emit:` prefix)의 지적을 반영해 **Step 12-A 부터 재-emit** 한다. **재시도 상한: 최대 2회.** 2회 재-emit 후에도 비-0 이면 완료를 선언하지 말고 **report-and-halt** — 마지막 실패 사유(stderr)를 scan 결과에 기록해 사용자에게 표면화한다 (동일 결함을 무한 반복 emit 하지 않도록). preflight 가드 미충족(skip)은 검증 실패가 아니므로 이 재시도 카운트에 포함되지 않는다.
 - validator 는 자신의 설치 경로 기준으로 `deep-docs/.claude-plugin/plugin.json` 을 읽으므로 (cwd 무관), 사용자 프로젝트 cwd 에서 실행해도 `producer_version` literal ↔ plugin 정본 동기 검사가 정상 동작한다.
 
 **중요한 envelope contract**:
