@@ -160,7 +160,7 @@ def can_reuse_scan(artifact, now):
     if artifact.get("schema_version") != "1.0":
         return False
     schema = env.get("schema") or {}
-    if schema.get("version") != "1.0" or schema.get("name") != "last-scan":
+    if schema.get("version") != "1.1" or schema.get("name") != "last-scan":
         return False
     # 2. 10분 TTL
     if (now - parse_iso(env["generated_at"])).total_seconds() > 600:

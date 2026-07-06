@@ -7,6 +7,14 @@
 
 ---
 
+## [1.4.1] — 2026-07-07
+
+### 수정됨
+
+- `reuse-cache` — `can_reuse_scan` 재사용 가드가 v1.4.0 에서 scan payload 가 `1.1` 로 이동한 뒤에도 payload `schema.version` 을 낡은 `1.0` 과 비교하여, 유효한 캐시 scan 이 항상 버전 불일치로 거부됐습니다. 검사를 `1.1` 로 재정렬했습니다.
+- Step 12-B(scan 아티팩트 emit)가 이제 쓰기 전에 envelope 를 자가검증하여, malformed payload 가 저장된 뒤 나중에 손상된 캐시로 드러나는 대신 emit 시점에 fail-closed 됩니다.
+- Step 12-B 쓰기를 atomic write(temp + rename)로 경화하여, emit 이 중단돼도 반쯤 쓰인 `last-scan.json` 을 남기지 않습니다.
+
 ## [1.4.0] — 2026-05-28
 
 ### 추가됨

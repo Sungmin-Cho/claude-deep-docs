@@ -215,6 +215,18 @@ check "validator top-level guard :81 STAYS 1.0" \
 check "validator payload guard :115 is 1.1" \
   "grep -q \"env.schema?.version !== '1.1'\" scripts/validate-envelope-emit.js"
 
+# worktree-hash.md can_reuse_scan() reference impl was the sole 1.0→1.1 miss (P1 reuse-cache).
+# Anchor the payload schema.version check at 1.1 so a stale "1.0" regression fails here.
+check "worktree-hash.md can_reuse_scan payload schema.version is 1.1 (P1 reuse-cache 회귀 앵커)" \
+  "grep -Eq 'schema\.get\(\"version\"\) != \"1\.1\"' skills/deep-docs-workflow/references/scan-filters/worktree-hash.md"
+# The top-level envelope-wrapper version is a SEPARATE axis (M3 lock) — it must STAY 1.0.
+# Guards against an over-correction that flips artifact.get("schema_version") too.
+check "worktree-hash.md can_reuse_scan top-level schema_version STAYS 1.0 (envelope wrapper 축 분리 앵커)" \
+  "grep -Eq 'artifact\.get\(\"schema_version\"\) != \"1\.0\"' skills/deep-docs-workflow/references/scan-filters/worktree-hash.md"
+# 세 사본 동일성: reference impl(worktree-hash) + 소비자 문서 2곳(entry/workflow SKILL)이 모두 payload 1.1 을 요구.
+check "payload schema.version 1.1 세 사본 동일 (worktree-hash + entry SKILL + workflow SKILL)" \
+  "grep -Eq 'schema\.get\(\"version\"\) != \"1\.1\"' skills/deep-docs-workflow/references/scan-filters/worktree-hash.md && grep -q 'envelope.schema.version === \"1.1\"' skills/deep-docs/SKILL.md && grep -q 'envelope.schema.version === \"1.1\"' skills/deep-docs-workflow/SKILL.md"
+
 # ===== Result =====
 echo "---"
 echo "Passed: $pass  Failed: $fail"
