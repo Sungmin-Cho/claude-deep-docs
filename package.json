@@ -1,16 +1,21 @@
 {
   "name": "deep-docs",
   "private": true,
-  "version": "1.4.1",
+  "version": "1.5.0",
   "type": "module",
   "description": "Document gardening agent — validates freshness and auto-repairs CLAUDE.md, AGENTS.md, and project docs",
   "author": {
     "name": "Sungmin-Cho"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "keywords": ["documentation", "gardening", "claude-md", "agents-md", "freshness"],
   "scripts": {
+    "test": "node --test",
     "validate:envelope": "node scripts/validate-envelope-emit.js",
-    "verify:fixes": "bash scripts/verify-fixes.sh"
+    "validate:codex": "node --test tests/plugin-contract.test.js",
+    "verify:fixes": "node scripts/verify-fixes.js"
   }
 }

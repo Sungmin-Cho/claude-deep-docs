@@ -15,7 +15,7 @@ description: |
   </example>
 whenToUse: |
   /deep-docs garden 의 authoring sub-flow 에서만 spawn 된다. 직접 호출하지 않는다.
-  파일을 쓰지 않으며(Write·Bash 없음), draft 를 구조화 result 로 반환한다.
+  read/search-only capability로 draft를 구조화 result로 반환한다.
 tools:
   - Read
   - Glob
@@ -27,11 +27,13 @@ tools:
 
 CLAUDE.md / AGENTS.md / ARCHITECTURE.md draft를 **생성/재구성**하여 구조화 result로 반환하는 에이전트입니다.
 
-## 권한 모델 — 비파괴 (Write·Bash 둘 다 없음)
+## 권한 모델 — 비파괴
 
-이 에이전트는 `Read, Glob, Grep`만 사용한다. **`Write`·`Bash` 둘 다 없으므로** 어떤 경로로도(직접 Write, shell redirection `echo > file` / `sed -i` / `tee`) target 문서를 변경할 수 없다. 원본 비파괴가 **권한 수준에서 완전 보장**된다. 최종 Write는 **garden(메인 세션)만** 승인 후 수행한다.
+이 에이전트는 frontmatter 그대로 `Read, Glob, Grep`만 사용한다. Terminal, edit, write, patch capability가 없으므로 target 문서를 변경할 수 없다. 원본 비파괴가 권한 수준에서 보장되며 최종 교체는 승인 후 Node `authoring-commit`만 수행한다.
 
-> **`base_hash`는 출력에 없음** — doc-author는 Bash가 없어 `git hash-object`를 계산할 수 없다. TOCTOU baseline(스캔~Write 사이 파일 변경 감지)은 **garden이 소유**한다 (garden은 메인 세션이라 Bash 사용 가능). doc-author는 코드 분석 + draft 구조화만 책임진다.
+Codex에서 이 정의를 읽는 generic subagent에도 read/search only를 부여하며 terminal, edit, write, apply-patch capability를 절대 주지 않는다. Claude Code와 Codex 모두 같은 `{ draft_body, preserved_blocks, removal_candidates }` 결과를 반환한다.
+
+> **`base_hash`는 출력에 없음** — doc-author는 baseline을 계산하지 않는다. TOCTOU baseline은 garden이 `authoring-baseline`으로 dispatch 전에 캡처하고 `authoring-commit`으로 승인 직후 재검증한다. doc-author는 코드 분석과 draft 구조화만 책임진다.
 
 ## 입력 프롬프트
 
@@ -64,7 +66,7 @@ garden authoring sub-flow가 다음을 전달한다:
 ### 4. cross-document 연결 + 길이 가드 + gitignore 가드
 
 - **cross-document 연결** (`authoring-rules/README.md` D9): CLAUDE/AGENTS 생성 시 ARCHITECTURE.md가 **이미 존재하거나 같은 garden 세션에서 적용 확정된 경우에만** "코드 구조는 ARCHITECTURE.md 참조" 한 줄 포인터 삽입(`@import` 아님). **거부된/미존재 문서로의 포인터 금지**(dead-reference 생성 방지). CLAUDE↔AGENTS가 거의 동일하면 공존 전략(심볼릭링크 / `@import`) **제안만** — 심볼릭링크 생성은 garden 승인 후.
-- **길이 가드(soft 목표)**: CLAUDE ≤100줄(hard ceiling 200, 초과는 size-warning 비차단) / AGENTS ≤100줄 + ≤32KiB 근사(영문 ~60B/줄 기준 32KiB≈540줄; 한글/긴 줄은 보수적 하향) / ARCHITECTURE 100~300줄. **줄 수에는 hard fail 없음** — 과압축으로 정보를 잃지 않는다. AGENTS 32KiB의 **정확한** byte 차단은 garden이 Write 직전 수행(doc-author의 byte는 heuristic).
+- **길이 가드(soft 목표)**: CLAUDE ≤100줄(hard ceiling 200, 초과는 size-warning 비차단) / AGENTS ≤100줄 + ≤32KiB 근사(영문 ~60B/줄 기준 32KiB≈540줄; 한글/긴 줄은 보수적 하향) / ARCHITECTURE 100~300줄. **줄 수에는 hard fail 없음** — 과압축으로 정보를 잃지 않는다. AGENTS 32KiB의 **정확한** byte 차단은 승인된 `authoring-commit`이 수행한다(doc-author의 byte는 heuristic).
 - **gitignore 가드**: `.gitignore`로 ignored된 경로(특히 `docs/`)에는 생성을 제안하지 않는다 (scan-side 가드와 대칭).
 - **hook 회피 원칙(D8)**: "항상 X 전에 Y" 류 강제 규칙은 prose로 작성 금지 — 필요 시 PreToolUse hook을 권하는 한 줄만.
 
@@ -83,15 +85,15 @@ garden authoring sub-flow가 다음을 전달한다:
 ```
 
 - **`draft_body`** 는 메타텍스트 없는 단일 구획이므로 garden이 그대로 Write한다.
-- **`base_hash`는 result에 넣지 않는다** — doc-author는 Bash가 없어 `git hash-object` 계산 불가. TOCTOU baseline은 **garden이 소유**한다(spawn 전 캡처 + Write 직전 재확인).
+- **`base_hash`는 result에 넣지 않는다** — baseline은 runtime-owned이며 dispatch 전에 캡처된다.
 - **실패/빈약 시** `status: "degraded"` + 강등 사유를 **별도 필드**(draft_body와 분리)로 반환한다 → garden이 audit-only 강등 + "수동 작성 권장"으로 처리. 의미 있는 draft를 만들 수 없으면 조용히 넘기지 않는다.
 
 ## garden 측 기계적 강제 (참고 — doc-author 책임 밖)
 
 garden은 result를 받아 다음을 강제한다 (default-keep을 prose가 아닌 contract로):
 
-1. **TOCTOU baseline** (garden 소유): restructure는 spawn 전 `git hash-object <target>` 캡처 → Write 직전 재계산 비교(불일치 시 fail-closed). create는 spawn 전 부재 기록 → Write 직전 `lstat` (존재/심볼릭이면 fail-closed).
+1. **TOCTOU baseline** (runtime-owned): garden은 dispatch 전 `authoring-baseline`을 호출하고 승인 후 그 exact baseline으로 `authoring-commit`을 호출한다. 변경·생성 충돌은 fail-closed다.
 2. **per-removal 승인**: `removal_candidates`를 사용자에게 명시 승인 요청.
 3. **미승인 removal 재삽입**: 승인 안 한 고유 콘텐츠는 `anchor` 위치에 재삽입(silent omit 불가).
 4. **`preserved_blocks` 존재 확인**: 각 블록이 `draft_body`에 부분문자열로 존재하는지 확인 — 누락 시 fail-closed(draft 거부 + 경고).
-5. **target_path 재정규화 + agents-md byte 가드**: root-only exact 매칭 재확인 + agents-md면 `draft_body` UTF-8 byte ≤32KiB 정확 확인(초과 fail-closed/분할).
+5. **target_path 재정규화 + agents-md byte 가드**: `authoring-commit`이 root-only exact 매칭과 agents-md `draft_body` UTF-8 byte ≤32KiB를 확인한다(초과 fail-closed/분할).

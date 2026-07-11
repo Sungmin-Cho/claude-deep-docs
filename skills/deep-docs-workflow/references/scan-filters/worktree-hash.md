@@ -1,245 +1,75 @@
 # Filter: worktree-hash
 
-## 목적
+## Purpose and executable source
 
-`.deep-docs/last-scan.json`의 재사용 가능성을 판정하기 위한 워크트리 해시. 스캔 시점 이후 tracked/untracked 변경이 있었는지 1개 해시로 요약한다.
+`computeWorktreeHash(root)` and its internal streaming implementation in `scripts/runtime/scan.js` are the executable contract. `scan-context` records the result as `ScanContextV1.worktree_hash`; `emit` copies it into payload provenance and `reuse` recomputes it.
 
-## 해결하는 리뷰 ID
+The hash detects tracked, staged, and untracked source-projection changes that a HEAD-plus-TTL check would miss. `.deep-docs` state is deliberately excluded so artifact creation does not invalidate itself.
 
-- **H-1** (원본 ultrareview): HEAD SHA + TTL로는 워킹트리 변경 미감지
-- **X-2** (deep-review 1차): tracked diff만으로는 untracked 파일 추가 누락
-- **NEW-RCE** (deep-review 2차): `xargs -I{} sh -c`가 파일명의 shell metacharacter 실행 위험
+## Repository states
 
-## 입력
+- Missing Git or non-Git root: return `hash: "no-git"` with explicit repository state. Reuse remains intentionally false for non-Git sessions.
+- Repository with HEAD: hash the raw binary diff against HEAD plus every non-ignored untracked projected file.
+- Unborn repository: hash the sorted cached-and-untracked source snapshot with an explicit unborn domain marker.
+- Unexpected Git failure or malformed output: fail closed; do not return a partial hash.
 
-- 스캔 실행 시점의 git 저장소 (cwd)
+## Source projection
 
-## 출력
+Every Git invocation receives the literal pathspec projection `.` excluding `.deep-docs` and `.deep-docs/**`. Git is spawned with argv elements, `shell: false`, binary output, and a bounded buffer.
 
-- `worktree_hash: str` — sha1 hex digest (40자) 또는 literal `"no-git"`
-- tracked diff + untracked 파일 목록/내용을 **모두** 반영
+Path lists use NUL-terminated bytes. The decoder requires:
 
-## 알고리즘
+- a final NUL when output is non-empty;
+- fatal UTF-8 decoding;
+- no empty record;
+- repository-relative, non-escaping paths;
+- no state-tree path.
 
-### Step 1. git 환경 감지
+No filename is interpolated into a command string. Newlines, spaces, quotes, semicolons, dollar signs, and Unicode are data rather than executable syntax.
 
-```bash
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    echo "no-git"
-    exit 0
-fi
-```
+## Canonical stream
 
-non-git 환경이면 `"no-git"` 반환, 재사용 로직은 `envelope.generated_at` TTL만 사용 (M3 envelope 기준; 1.1.0 시점 root-level `scanned_at` 은 envelope 으로 흡수됨).
+The SHA-1 stream is domain-separated and unambiguous:
 
-### Step 2. 안전한 직렬화 (NEW-RCE + BU-3 + BU-4 대응)
+1. HEAD mode prefixes the exact tracked binary diff with its byte length.
+2. Unborn mode prefixes an explicit unborn marker.
+3. Projected paths are de-duplicated and sorted by UTF-8 byte order.
+4. Each path is appended as ASCII byte-length, separator, UTF-8 bytes, then NUL.
+5. Each file contribution is a Git-compatible blob SHA-1 appended with the same length-prefixed/NUL-safe framing.
 
-**절대 금지**:
-- `xargs -I{} sh -c '... {}'` — 파일명이 `sh -c`에 삽입되어 shell이 재파싱 (NEW-RCE).
-- `tr '\0' '\n'` — 파일명에 newline 포함 시 두 파일처럼 변질 (BU-3).
-- `FILE:path\ncontent\nEOF\n` 같은 plain-text sentinel — 내용에 sentinel이 포함되면 서로 다른 worktree가 동일 스트림 생산 (BU-4 injection).
+Regular files are streamed in bounded chunks and their observed byte count must equal the pre-read size. Symlink contributions hash the link bytes rather than following the target. Missing paths have an explicit missing-domain hash. Directories, special files, root escapes, and mid-read changes fail closed.
 
-**Python primary 구현 (BU-3, BU-4 해결)**:
+The final value is a lowercase 40-hex SHA-1 because it is a compatibility identity, not a password or signature.
 
-```python
-import hashlib
-import subprocess
-from pathlib import Path
+## Reuse contract
 
-def compute_worktree_hash() -> str:
-    """
-    Unambiguous worktree fingerprint.
-    - tracked diff: git diff HEAD --binary
-    - untracked files: git hash-object per file, sorted
-    Returns hex sha1 digest.
-    """
-    h = hashlib.sha1()
+For a Git artifact, `reuse` requires all of these facts to match:
 
-    # (A) tracked 변경 — git diff는 자체 구조가 unambiguous
-    tracked_diff = subprocess.run(
-        ["git", "diff", "HEAD", "--binary"],
-        capture_output=True, check=False,
-    ).stdout
-    # length-prefix diff
-    h.update(f"TRACKED_DIFF:{len(tracked_diff)}\n".encode())
-    h.update(tracked_diff)
+- valid deep-docs envelope identity and schema;
+- TTL within 600 seconds;
+- path-check setting;
+- current HEAD;
+- freshly computed source-projection worktree hash.
 
-    # (B) untracked 파일 목록 — NUL-delimited 그대로 파싱
-    untracked_raw = subprocess.run(
-        ["git", "ls-files", "-z", "--others", "--exclude-standard"],
-        capture_output=True, check=False,
-    ).stdout
-    paths = [p for p in untracked_raw.split(b"\x00") if p]
-    paths.sort()
+Tracked or staged changes to `.deep-docs` do not alter the projection. Any real source edit, deletion, symlink-byte change, or admitted untracked source does.
 
-    # (C) 각 파일의 per-file digest — ambiguity 원천 제거
-    h.update(f"UNTRACKED_COUNT:{len(paths)}\n".encode())
-    for path_bytes in paths:
-        path = Path(path_bytes.decode("utf-8", errors="surrogateescape"))
-        obj_hash = _file_digest_streaming(path)       # N-3 대응: stream
-        # record: length-prefixed path + its content digest
-        h.update(f"{len(path_bytes)}\0".encode())
-        h.update(path_bytes)
-        h.update(f"\0{obj_hash}\n".encode())
+## Edge matrix
 
-    return h.hexdigest()
+| Case | Result |
+|---|---|
+| clean HEAD repository | stable 40-hex hash |
+| staged source edit | changed hash |
+| unstaged source edit | changed hash |
+| admitted untracked source | changed hash |
+| ignored untracked file | excluded by Git |
+| artifact/request update under `.deep-docs` | unchanged hash |
+| newline or shell metacharacter in filename | encoded as NUL-delimited data |
+| symlink source | link bytes hashed, target not followed |
+| source changes during streaming | operational failure |
+| malformed/non-NUL Git list | operational failure |
+| missing Git/non-Git | `no-git` |
+| unborn repository | deterministic unborn snapshot |
 
+## Ownership
 
-def _file_digest_streaming(path: Path) -> str:
-    """
-    Stream a file through sha1 in 64KB chunks (N-3 대응).
-    Avoids loading large files (video, binaries) fully into memory.
-    Returns git-style blob digest or '__MISSING__'.
-    """
-    import os
-    try:
-        size = os.path.getsize(path)
-    except OSError:
-        return "__MISSING__"
-    h = hashlib.sha1()
-    h.update(f"blob {size}\0".encode())
-    try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                h.update(chunk)
-    except OSError:
-        return "__MISSING__"
-    return h.hexdigest()
-```
-
-**안전 특성**:
-1. **NUL 보존 (BU-3)**: 파일 목록은 끝까지 NUL로 delimited 처리. 텍스트 변환 없음.
-2. **Unambiguous 직렬화 (BU-4)**: 각 record가 `<length>\0<path>\0<sha1>` 형태로 길이-접두사 + fixed-width hash. sentinel 문자열 injection 불가.
-3. **RCE-free (NEW-RCE)**: 파일명이 shell을 거치지 않음. Python `open()`에 bytes-path로 직접 전달.
-4. **Cross-platform**: Python `hashlib.sha1`은 macOS/Linux 동일. `shasum`/`sha1sum` 분기 불필요.
-5. **결정성**: `paths.sort()`로 순서 안정. 빈 untracked일 때도 `UNTRACKED_COUNT:0`가 hash에 포함됨 → 결정적.
-
-**참고: Bash 근사 (정확성 미보장)**:
-```bash
-# WARNING: Python이 primary. 이 Bash는 디버깅/간이 확인용.
-# ambiguity 완전 제거 못함 (newline in filename 경계 조건).
-compute_worktree_hash_approx() {
-    {
-        printf 'TRACKED_DIFF:'
-        git diff HEAD --binary 2>/dev/null | wc -c
-        git diff HEAD --binary 2>/dev/null
-
-        git ls-files -z --others --exclude-standard \
-          | sort -z \
-          | while IFS= read -r -d '' f; do
-              [ -f "$f" ] || continue
-              # git hash-object는 각 파일에 대해 unambiguous digest
-              printf '%s\0' "$f"
-              git hash-object -- "$f" 2>/dev/null || printf '__MISSING__'
-              printf '\n'
-            done
-    } | shasum -a 1 | awk '{print $1}'
-}
-```
-Bash 근사도 `git hash-object`로 per-file digest를 씀으로써 BU-4를 완화하지만, `sort -z`의 BSD/GNU 호환성 이슈가 남음.
-
-### Step 3. 해시 정규화
-
-- Python primary에서는 `hashlib.sha1`로 통일 — 외부 도구 의존 없음.
-- `git diff --binary`: binary 파일도 base64 인코딩되어 diff에 포함됨 → 시간 독립적 해시 보장.
-- Bash 근사에서 `shasum -a 1` 우선, `sha1sum` **사용 금지** (macOS 호환 + 스펙 일관성, BW-1 대응). 둘 다 없으면 `openssl dgst -sha1` fallback.
-
-## 재사용 규칙 연동
-
-`.deep-docs/last-scan.json`의 재사용은 다음을 모두 만족 (M3 envelope-aware):
-
-```python
-def can_reuse_scan(artifact, now):
-    # 0. identity 가드 — deep-docs/last-scan envelope 인지 확인 (defense-in-depth)
-    env = artifact.get("envelope") or {}
-    if env.get("producer") != "deep-docs":
-        return False
-    if env.get("artifact_kind") != "last-scan":
-        return False
-    # 1. envelope wrapper + payload schema 양쪽 일치
-    if artifact.get("schema_version") != "1.0":
-        return False
-    schema = env.get("schema") or {}
-    if schema.get("version") != "1.1" or schema.get("name") != "last-scan":
-        return False
-    # 2. 10분 TTL
-    if (now - parse_iso(env["generated_at"])).total_seconds() > 600:
-        return False
-    payload = artifact.get("payload") or {}
-    prov = payload.get("provenance")
-    # payload.provenance 자체가 없거나 객체가 아닌 경우 → corrupt/partial emit. 재-scan.
-    # (절대 fast-path 로 흘러가지 않도록 — buggy writer 가 만든 empty payload 가 git repo 에서
-    #  is_git=False 로 오인되어 head/worktree_hash 검사 우회되는 것을 방지.)
-    if not isinstance(prov, dict):
-        return False
-    # path_check_enabled 는 cli-whitelist 의 $PATH 체크가 ON 인 경우에만 emit 됨 (cli-whitelist.md §Provenance).
-    # 기본값 (OFF) 일 때 emit 에 없으므로 absent → False 로 default 해야 config OFF 와 정상 매칭.
-    # **non-git 경로보다 먼저** 검사 — config 토글은 git 환경과 무관하게 stale CLI classification 을 만들 수 있음.
-    if prov.get("path_check_enabled", False) != bool(config.enable_path_check):
-        return False   # 환경 설정 변경도 무효화 (non-git 환경 포함)
-    # is_git 은 명시적 boolean 이어야 함 (absent → "어떤 환경인지 모름" → 재-scan).
-    is_git_value = prov.get("is_git")
-    if not isinstance(is_git_value, bool):
-        return False   # explicit is_git 필드 부재 시 fast-path 신뢰 불가
-    if not is_git_value:
-        # non-git: identity guard + TTL + path_check_enabled 만 확인 (worktree_hash 는 "no-git", git head 부재)
-        return True
-    # 3. envelope.git.head ↔ HEAD
-    if env["git"]["head"] != current_head_sha():
-        return False
-    # 4. payload.provenance.worktree_hash ↔ 재계산
-    if prov["worktree_hash"] != compute_worktree_hash():
-        return False
-    return True
-```
-
-## Edge Case 매트릭스
-
-| 시나리오 | 해시 동작 |
-|----------|-----------|
-| clean tree, tracked 변경 없음, untracked 없음 | 결정적 해시 (sha1 of empty-ish input) |
-| tracked 파일 1개 수정 | `git diff HEAD`가 변경 diff 반환 → 해시 바뀜 |
-| untracked 파일 1개 추가 | ls-files --others에 잡힘 → 해시 바뀜 |
-| untracked 파일 삭제 (추가 후 삭제) | 목록에서 빠짐 → 이전 추가 전 해시와 동일 |
-| untracked 파일 수정 (이미 untracked인 파일 내용 변경) | 내용 재cat → 해시 바뀜 |
-| 파일명에 `$()` 포함 | cat argument로만 전달 → shell 실행 안 됨 (NEW-RCE 해결) |
-| 파일명에 newline 포함 | NUL-delimited read → 안전 처리 |
-| 파일명이 `-rf` | `cat --`로 sentinel 뒤 argument 취급 → 옵션 해석 안 됨 |
-| binary 파일 변경 | `--binary` 옵션으로 base64 포함 → 감지됨 |
-| 파일 권한만 변경 (내용 동일) | diff에 mode change 포함 → 감지됨 |
-| `.gitignore`로 무시되는 파일 | `--exclude-standard`로 제외 → 해시에 영향 없음 (의도) |
-
-## Failure Modes
-
-1. **symlink loop**: `cat`이 symlink를 따라가다 loop 걸리면 hang. 완화: `find -L` 대신 직접 `cat`만 — `cat`은 symlink를 한 번만 따라감, loop 시 파일로 인식 못하고 skip 가능.
-2. **거대 untracked 디렉토리**: 수GB의 미커밋 빌드 산출물이 있으면 해시 계산 오래 걸림. 완화: `.gitignore` 지시. 사용자 책임.
-3. **거대 untracked 파일 메모리** (N-3 대응): 500MB+ 개별 파일도 `_file_digest_streaming()`이 64KB chunk로 해시 → 메모리 사용량 O(1). 무한 파일 크기 대응.
-4. **LFS 파일**: `git diff --binary`는 LFS pointer만 포함. 실제 large file 내용은 해시에 반영 안 됨. minor — LFS 파일 변경은 HEAD sha 비교로 감지됨.
-
-## Bash 실행 가능성 확인
-
-```bash
-# Dogfood: 파일명에 shell metacharacter 포함 테스트
-mkdir -p /tmp/deepdocs-hashtest
-cd /tmp/deepdocs-hashtest
-git init -q
-touch "normal.txt"
-touch "\$(echo hacked).md"         # RCE 시도
-touch "-rf.md"                      # dash-prefix
-hash1=$(compute_worktree_hash)
-rm "\$(echo hacked).md"
-touch "\$(echo hacked).md"          # 재생성
-hash2=$(compute_worktree_hash)
-[ "$hash1" = "$hash2" ] && echo "OK: deterministic" || echo "FAIL"
-```
-
-이 테스트가 안전하게 통과해야 함. `echo hacked`가 실제 실행되지 않아야 함.
-
-## 통합 지점
-
-- **Step 12 (doc-scanner.md)**: 아티팩트 저장 시 `provenance.worktree_hash`로 기록.
-- **scan 재사용 판정 (skills/deep-docs/SKILL.md)**: garden/audit 진입 시 본 필터 재실행 후 저장값과 비교.
-
-## 버전
-
-- **v1.0** (2026-04-17): 초안. NUL-safe loop, `shasum -a 1` 기반, `--binary` diff.
+Scanner and host instructions must consume the recorded value and must not retain an alternative command pipeline. All changes to this contract require Node tests covering byte framing, filenames, Git states, projection exclusions, and reuse behavior.
