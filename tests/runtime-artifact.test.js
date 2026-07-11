@@ -6,6 +6,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  open as fsOpen,
   readFile,
   readdir,
   rename,
@@ -640,6 +641,476 @@ test('bounded rename retries transient Windows errors and preserves old state on
   }), /busy|rename/);
   assert.deepEqual(await readFile(target), stable);
   assert.deepEqual((await readdir(join(root, '.deep-docs'))).filter((name) => name.endsWith('.tmp')), []);
+});
+
+test('authoring preserves a foreign predicted temp when exclusive creation returns EEXIST', async () => {
+  const root = await temporaryRoot('deep docs author foreign temp ');
+  const target = join(root, 'AGENTS.md');
+  const approvedBytes = Buffer.from('approved user bytes\n');
+  await writeFile(target, approvedBytes);
+  const baseline = await captureBaseline({
+    root,
+    targetPath: 'AGENTS.md',
+    mode: 'restructure',
+    docKind: 'agents-md',
+  });
+  const fixedUuid = '00000000-0000-4000-8000-000000000001';
+  const temporary = `${target}.${process.pid}.${fixedUuid}.tmp`;
+  const foreignBytes = Buffer.from('foreign temp bytes\n');
+  await writeFile(temporary, foreignBytes);
+
+  await assert.rejects(commitAuthoring({
+    root,
+    baseline,
+    draftBody: 'replacement draft\n',
+    preservedBlocks: [],
+    docKind: 'agents-md',
+    deps: { randomUUID: () => fixedUuid },
+  }), (error) => error?.code === 'EEXIST');
+  assert.deepEqual(await readFile(target), approvedBytes);
+  assert.deepEqual(await readFile(temporary), foreignBytes);
+});
+
+test('atomic state replacement preserves a foreign predicted temp when exclusive creation returns EEXIST', async () => {
+  const root = await gitProject();
+  await fixture(root);
+  const target = join(root, '.deep-docs', 'last-scan.json');
+  const approvedBytes = await readFile(target);
+  const fixedUuid = '00000000-0000-4000-8000-000000000002';
+  const temporary = `${target}.${process.pid}.${fixedUuid}.tmp`;
+  const foreignBytes = Buffer.from('foreign state temp bytes\n');
+  await writeFile(temporary, foreignBytes);
+
+  await assert.rejects(fixture(root, {
+    now: new Date(now.getTime() + 1000),
+    randomBytes: Buffer.alloc(10, 8),
+    deps: { randomUUID: () => fixedUuid },
+  }), (error) => error?.code === 'EEXIST');
+  assert.deepEqual(await readFile(target), approvedBytes);
+  assert.deepEqual(await readFile(temporary), foreignBytes);
+});
+
+test('authoring post-open failure removes only its owned temp', async () => {
+  const root = await temporaryRoot('deep docs author owned temp ');
+  const target = join(root, 'CLAUDE.md');
+  const approvedBytes = Buffer.from('approved authoring bytes\n');
+  await writeFile(target, approvedBytes);
+  const baseline = await captureBaseline({
+    root,
+    targetPath: 'CLAUDE.md',
+    mode: 'restructure',
+    docKind: 'claude-md',
+  });
+  const fixedUuid = '00000000-0000-4000-8000-000000000003';
+  const ownedTemporary = `${target}.${process.pid}.${fixedUuid}.tmp`;
+  const foreignTemporary = `${target}.${process.pid}.foreign.tmp`;
+  const foreignBytes = Buffer.from('unrelated foreign temp\n');
+  await writeFile(foreignTemporary, foreignBytes);
+
+  await assert.rejects(commitAuthoring({
+    root,
+    baseline,
+    draftBody: 'replacement draft\n',
+    preservedBlocks: [],
+    docKind: 'claude-md',
+    deps: {
+      randomUUID: () => fixedUuid,
+      beforeRename: async () => { throw new Error('injected authoring post-open failure'); },
+    },
+  }), /injected authoring post-open failure/);
+  assert.equal(await lstat(ownedTemporary).catch((error) => error.code), 'ENOENT');
+  assert.deepEqual(await readFile(foreignTemporary), foreignBytes);
+  assert.deepEqual(await readFile(target), approvedBytes);
+});
+
+test('atomic replacement post-open failures remove only the owned temp', async () => {
+  const stages = ['write', 'fsync', 'readback', 'rename'];
+  for (const [index, stage] of stages.entries()) {
+    const root = await gitProject();
+    const initialEntry = {
+      type: 'thin-doc', path: 'AGENTS.md', content_preview: `initial ${stage}`,
+    };
+    initialEntry.signature = gardenSignature({
+      type: initialEntry.type,
+      path: initialEntry.path,
+      contentPreview: initialEntry.content_preview,
+    });
+    await appendGardenIgnore({ root, entry: initialEntry, now });
+    const nextEntry = {
+      type: 'dead-reference', path: 'README.md', content_preview: `next ${stage}`,
+    };
+    nextEntry.signature = gardenSignature({
+      type: nextEntry.type,
+      path: nextEntry.path,
+      contentPreview: nextEntry.content_preview,
+    });
+    const target = join(root, '.deep-docs', 'garden-ignored.json');
+    const approvedBytes = await readFile(target);
+    const fixedUuid = `00000000-0000-4000-8000-00000000001${index}`;
+    const ownedTemporary = `${target}.${process.pid}.${fixedUuid}.tmp`;
+    const foreignTemporary = `${target}.${process.pid}.foreign-${stage}.tmp`;
+    const foreignBytes = Buffer.from(`foreign ${stage} temp bytes\n`);
+    await writeFile(foreignTemporary, foreignBytes);
+    let ownedTempOpened = false;
+    let canonicalTarget;
+
+    await assert.rejects(appendGardenIgnore({
+      root,
+      entry: nextEntry,
+      now: new Date(now.getTime() + 1000 + index),
+      deps: {
+        randomUUID: () => fixedUuid,
+        open: async (candidate, flags) => {
+          const handle = await fsOpen(candidate, flags);
+          const suffix = `.${process.pid}.${fixedUuid}.tmp`;
+          if (!candidate.endsWith(suffix)) return handle;
+          ownedTempOpened = true;
+          canonicalTarget = candidate.slice(0, -suffix.length);
+          return {
+            stat: async (...args) => handle.stat(...args),
+            writeFile: async (...args) => {
+              if (stage === 'write') throw new Error('injected owned-temp write failure');
+              return handle.writeFile(...args);
+            },
+            sync: async () => {
+              if (stage === 'fsync') throw new Error('injected owned-temp fsync failure');
+              return handle.sync();
+            },
+            close: async () => handle.close(),
+          };
+        },
+        readFile: async (candidate, ...args) => {
+          if (stage === 'readback' && ownedTempOpened && candidate === canonicalTarget) {
+            throw new Error('injected target readback failure');
+          }
+          return readFile(candidate, ...args);
+        },
+        rename: async (...args) => {
+          if (stage === 'rename') {
+            throw Object.assign(new Error('injected owned-temp rename failure'), { code: 'EIO' });
+          }
+          return rename(...args);
+        },
+      },
+    }), /injected|atomic rename failed/, stage);
+    assert.equal(ownedTempOpened, true, stage);
+    assert.equal(await lstat(ownedTemporary).catch((error) => error.code), 'ENOENT', stage);
+    assert.deepEqual(await readFile(foreignTemporary), foreignBytes, stage);
+    assert.deepEqual(await readFile(target), approvedBytes, stage);
+  }
+});
+
+test('state lock cleanup distinguishes foreign and successfully created owner files', async () => {
+  const entry = { type: 'thin-doc', path: 'AGENTS.md', content_preview: 'x' };
+  entry.signature = gardenSignature({ type: entry.type, path: entry.path, contentPreview: 'x' });
+
+  const foreignRoot = await gitProject();
+  const foreignOwnerBytes = Buffer.from('foreign lock owner\n');
+  let foreignOwnerPath;
+  await assert.rejects(appendGardenIgnore({
+    root: foreignRoot,
+    entry,
+    now,
+    deps: {
+      open: async (candidate, flags) => {
+        foreignOwnerPath = candidate;
+        await writeFile(candidate, foreignOwnerBytes);
+        return fsOpen(candidate, flags);
+      },
+    },
+  }), (error) => error?.code === 'state-lock' && error?.cause?.code === 'EEXIST');
+  assert.deepEqual(await readFile(foreignOwnerPath), foreignOwnerBytes);
+
+  for (const stage of ['write', 'fsync']) {
+    const ownedRoot = await gitProject();
+    const stateDirectory = join(ownedRoot, '.deep-docs');
+    const foreignSentinel = join(stateDirectory, `foreign-${stage}`);
+    await mkdir(stateDirectory);
+    await writeFile(foreignSentinel, `foreign ${stage}\n`);
+    let ownedOwnerPath;
+    await assert.rejects(appendGardenIgnore({
+      root: ownedRoot,
+      entry,
+      now,
+      deps: {
+        open: async (candidate, flags) => {
+          const handle = await fsOpen(candidate, flags);
+          ownedOwnerPath = candidate;
+          return {
+            stat: async (...args) => handle.stat(...args),
+            writeFile: async (...args) => {
+              if (stage === 'write') throw new Error('injected lock owner write failure');
+              return handle.writeFile(...args);
+            },
+            sync: async () => {
+              if (stage === 'fsync') throw new Error('injected lock owner fsync failure');
+              return handle.sync();
+            },
+            close: async () => handle.close(),
+          };
+        },
+      },
+    }), /cannot initialize mutation lock/);
+    assert.equal(await lstat(ownedOwnerPath).catch((error) => error.code), 'ENOENT', stage);
+    assert.equal(await lstat(dirname(ownedOwnerPath)).catch((error) => error.code), 'ENOENT', stage);
+    assert.equal(await readFile(foreignSentinel, 'utf8'), `foreign ${stage}\n`, stage);
+  }
+});
+
+test('authoring forced failure preserves displaced owned and same-path foreign temps', async () => {
+  const root = await temporaryRoot('deep docs author identity cleanup ');
+  const target = join(root, 'AGENTS.md');
+  const approvedBytes = Buffer.from('approved authoring identity bytes\n');
+  const draftBytes = Buffer.from('replacement authoring identity draft\n');
+  const foreignBytes = Buffer.from('foreign authoring temp replacement\n');
+  await writeFile(target, approvedBytes);
+  const baseline = await captureBaseline({
+    root, targetPath: 'AGENTS.md', mode: 'restructure', docKind: 'agents-md',
+  });
+  const fixedUuid = '00000000-0000-4000-8000-000000000020';
+  let temporary;
+  let displaced;
+
+  await assert.rejects(commitAuthoring({
+    root,
+    baseline,
+    draftBody: draftBytes.toString('utf8'),
+    preservedBlocks: [],
+    docKind: 'agents-md',
+    deps: {
+      randomUUID: () => fixedUuid,
+      beforeRename: async ({ temporary: openedTemporary }) => {
+        temporary = openedTemporary;
+        displaced = `${temporary}.owned`;
+        await rename(temporary, displaced);
+        await writeFile(temporary, foreignBytes);
+        throw new Error('injected authoring identity failure');
+      },
+    },
+  }), /injected authoring identity failure/);
+  assert.deepEqual(await readFile(target), approvedBytes);
+  assert.deepEqual(await readFile(temporary), foreignBytes);
+  assert.deepEqual(await readFile(displaced), draftBytes);
+});
+
+test('atomic forced failure preserves displaced owned and same-path foreign temps', async () => {
+  const root = await gitProject();
+  const initialEntry = { type: 'thin-doc', path: 'AGENTS.md', content_preview: 'identity initial' };
+  initialEntry.signature = gardenSignature({
+    type: initialEntry.type, path: initialEntry.path, contentPreview: initialEntry.content_preview,
+  });
+  await appendGardenIgnore({ root, entry: initialEntry, now });
+  const nextEntry = { type: 'dead-reference', path: 'README.md', content_preview: 'identity next' };
+  nextEntry.signature = gardenSignature({
+    type: nextEntry.type, path: nextEntry.path, contentPreview: nextEntry.content_preview,
+  });
+  const target = join(root, '.deep-docs', 'garden-ignored.json');
+  const approvedBytes = await readFile(target);
+  const foreignBytes = Buffer.from('foreign atomic temp replacement\n');
+  const fixedUuid = '00000000-0000-4000-8000-000000000021';
+  let temporary;
+  let displaced;
+
+  await assert.rejects(appendGardenIgnore({
+    root,
+    entry: nextEntry,
+    now: new Date(now.getTime() + 1000),
+    deps: {
+      randomUUID: () => fixedUuid,
+      beforeRename: async ({ temporary: openedTemporary }) => {
+        temporary = openedTemporary;
+        displaced = `${temporary}.owned`;
+        await rename(temporary, displaced);
+        await writeFile(temporary, foreignBytes);
+        throw new Error('injected atomic identity failure');
+      },
+    },
+  }), /injected atomic identity failure/);
+  assert.deepEqual(await readFile(target), approvedBytes);
+  assert.deepEqual(await readFile(temporary), foreignBytes);
+  assert.match(await readFile(displaced, 'utf8'), /identity next/);
+});
+
+test('authoring refuses to publish a same-path foreign temp replacement', async () => {
+  const root = await temporaryRoot('deep docs author identity publish ');
+  const target = join(root, 'CLAUDE.md');
+  const approvedBytes = Buffer.from('approved authoring publish bytes\n');
+  const draftBytes = Buffer.from('owned authoring publish draft\n');
+  const foreignBytes = Buffer.from('foreign authoring publish bytes\n');
+  await writeFile(target, approvedBytes);
+  const baseline = await captureBaseline({
+    root, targetPath: 'CLAUDE.md', mode: 'restructure', docKind: 'claude-md',
+  });
+  const fixedUuid = '00000000-0000-4000-8000-000000000022';
+  let temporary;
+  let displaced;
+
+  await assert.rejects(commitAuthoring({
+    root,
+    baseline,
+    draftBody: draftBytes.toString('utf8'),
+    preservedBlocks: [],
+    docKind: 'claude-md',
+    deps: {
+      randomUUID: () => fixedUuid,
+      beforeRename: async ({ temporary: openedTemporary }) => {
+        temporary = openedTemporary;
+        displaced = `${temporary}.owned`;
+        await rename(temporary, displaced);
+        await writeFile(temporary, foreignBytes);
+      },
+    },
+  }), /identity/);
+  assert.deepEqual(await readFile(target), approvedBytes);
+  assert.deepEqual(await readFile(temporary), foreignBytes);
+  assert.deepEqual(await readFile(displaced), draftBytes);
+});
+
+test('atomic replacement refuses to publish a same-path foreign temp replacement', async () => {
+  const root = await gitProject();
+  const initialEntry = { type: 'thin-doc', path: 'AGENTS.md', content_preview: 'publish initial' };
+  initialEntry.signature = gardenSignature({
+    type: initialEntry.type, path: initialEntry.path, contentPreview: initialEntry.content_preview,
+  });
+  await appendGardenIgnore({ root, entry: initialEntry, now });
+  const nextEntry = { type: 'dead-reference', path: 'README.md', content_preview: 'publish next' };
+  nextEntry.signature = gardenSignature({
+    type: nextEntry.type, path: nextEntry.path, contentPreview: nextEntry.content_preview,
+  });
+  const target = join(root, '.deep-docs', 'garden-ignored.json');
+  const approvedBytes = await readFile(target);
+  const foreignBytes = Buffer.from('foreign atomic publish bytes\n');
+  const fixedUuid = '00000000-0000-4000-8000-000000000023';
+  let temporary;
+  let displaced;
+
+  await assert.rejects(appendGardenIgnore({
+    root,
+    entry: nextEntry,
+    now: new Date(now.getTime() + 1000),
+    deps: {
+      randomUUID: () => fixedUuid,
+      beforeRename: async ({ temporary: openedTemporary }) => {
+        temporary = openedTemporary;
+        displaced = `${temporary}.owned`;
+        await rename(temporary, displaced);
+        await writeFile(temporary, foreignBytes);
+      },
+    },
+  }), /identity/);
+  assert.deepEqual(await readFile(target), approvedBytes);
+  assert.deepEqual(await readFile(temporary), foreignBytes);
+  assert.match(await readFile(displaced, 'utf8'), /publish next/);
+});
+
+test('state lock release preserves an identical-byte same-path foreign owner', async () => {
+  const root = await gitProject();
+  const entry = { type: 'thin-doc', path: 'AGENTS.md', content_preview: 'lock identity' };
+  entry.signature = gardenSignature({
+    type: entry.type, path: entry.path, contentPreview: entry.content_preview,
+  });
+  const fixedUuid = '00000000-0000-4000-8000-000000000024';
+  const ownerBytes = Buffer.from(`${fixedUuid}\n`);
+  let ownerPath;
+  let displacedOwner;
+
+  const releaseError = await appendGardenIgnore({
+    root,
+    entry,
+    now,
+    deps: {
+      randomUUID: () => fixedUuid,
+      beforeRename: async ({ target }) => {
+        ownerPath = join(dirname(target), '.mutation-lock', 'owner');
+        displacedOwner = `${ownerPath}.owned`;
+        assert.deepEqual(await readFile(ownerPath), ownerBytes);
+        await rename(ownerPath, displacedOwner);
+        await writeFile(ownerPath, ownerBytes);
+      },
+    },
+  }).then(() => null, (error) => error);
+  assert.ok(releaseError);
+  assert.deepEqual(await readFile(ownerPath), ownerBytes);
+  assert.deepEqual(await readFile(displacedOwner), ownerBytes);
+  assert.match(releaseError.message, /identity/);
+});
+
+test('unreliable opened identity fails closed without deleting the unverified temp', async () => {
+  const root = await temporaryRoot('deep docs unreliable identity ');
+  const target = join(root, 'ARCHITECTURE.md');
+  const approvedBytes = Buffer.from('approved architecture bytes\n');
+  await writeFile(target, approvedBytes);
+  const baseline = await captureBaseline({
+    root,
+    targetPath: 'ARCHITECTURE.md',
+    mode: 'restructure',
+    docKind: 'architecture-md',
+  });
+  const fixedUuid = '00000000-0000-4000-8000-000000000025';
+  let temporary;
+
+  await assert.rejects(commitAuthoring({
+    root,
+    baseline,
+    draftBody: 'unpublished draft\n',
+    preservedBlocks: [],
+    docKind: 'architecture-md',
+    deps: {
+      randomUUID: () => fixedUuid,
+      open: async (candidate, flags) => {
+        const handle = await fsOpen(candidate, flags);
+        temporary = candidate;
+        return {
+          stat: async () => ({ dev: 0n, ino: 0n }),
+          writeFile: async (...args) => handle.writeFile(...args),
+          sync: async () => handle.sync(),
+          close: async () => handle.close(),
+        };
+      },
+    },
+  }), /identity/);
+  assert.deepEqual(await readFile(target), approvedBytes);
+  assert.deepEqual(await readFile(temporary), Buffer.alloc(0));
+});
+
+test('zero device with a nonzero inode remains a usable stable identity', async () => {
+  const root = await temporaryRoot('deep docs zero device identity ');
+  const target = join(root, 'AGENTS.md');
+  await writeFile(target, 'approved zero-device bytes\n');
+  const baseline = await captureBaseline({
+    root,
+    targetPath: 'AGENTS.md',
+    mode: 'restructure',
+    docKind: 'agents-md',
+  });
+
+  assert.deepEqual(await commitAuthoring({
+    root,
+    baseline,
+    draftBody: 'published with zero device\n',
+    preservedBlocks: [],
+    docKind: 'agents-md',
+    deps: {
+      open: async (candidate, flags) => {
+        const handle = await fsOpen(candidate, flags);
+        return {
+          stat: async (...args) => {
+            const metadata = await handle.stat(...args);
+            return { dev: 0n, ino: metadata.ino, isFile: () => metadata.isFile() };
+          },
+          writeFile: async (...args) => handle.writeFile(...args),
+          sync: async () => handle.sync(),
+          close: async () => handle.close(),
+        };
+      },
+      lstat: async (candidate, options) => {
+        const metadata = await lstat(candidate, options);
+        if (options?.bigint !== true) return metadata;
+        return { dev: 0n, ino: metadata.ino, isFile: () => metadata.isFile() };
+      },
+    },
+  }), { ok: true });
+  assert.equal(await readFile(target, 'utf8'), 'published with zero device\n');
 });
 
 test('pre-open destination swaps and parent-component swaps fail closed with safe cleanup refusal', async (t) => {

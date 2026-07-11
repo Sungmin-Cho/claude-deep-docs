@@ -5,8 +5,10 @@ import path from 'node:path';
 
 import { runGit } from './git.js';
 import {
+  captureOpenedFileIdentity,
   guardRegularTarget,
   revalidatePhysicalParent,
+  revalidateOwnedFileIdentity,
   renameWithRetry,
   resolveAndValidateRealTargetRoot,
   RuntimeError,
@@ -186,8 +188,10 @@ export async function commitAuthoring({
 
   const temporary = `${target}.${process.pid}.${deps.randomUUID()}.tmp`;
   let handle;
+  let temporaryIdentity;
   try {
     handle = await deps.open(temporary, 'wx');
+    temporaryIdentity = await captureOpenedFileIdentity(handle, 'authoring');
     await handle.writeFile(Buffer.from(draftBody, 'utf8'));
     await handle.sync();
     await handle.close();
@@ -198,11 +202,17 @@ export async function commitAuthoring({
       revalidate: async () => {
         await revalidatePhysicalParent(canonicalRoot, canonicalRoot, expectedParent);
         await currentBaselineState(canonicalRoot, baseline, expectedParent);
+        await revalidateOwnedFileIdentity(canonicalRoot, temporary, expectedParent, temporaryIdentity, {
+          code: 'authoring',
+          deps,
+        });
       },
     });
   } catch (error) {
     try { await handle?.close(); } catch {}
-    await safeCleanupOwnedFile(canonicalRoot, temporary, expectedParent, deps);
+    if (temporaryIdentity) {
+      await safeCleanupOwnedFile(canonicalRoot, temporary, expectedParent, temporaryIdentity, deps);
+    }
     throw error;
   }
   return { ok: true };

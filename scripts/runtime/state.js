@@ -246,15 +246,100 @@ export async function renameWithRetry(source, destination, overrides = {}) {
   throw stateError('rename', `atomic rename failed: ${lastError?.message ?? 'unknown error'}`, lastError);
 }
 
-export async function safeCleanupOwnedFile(root, target, expectedPhysicalParent, overrides = {}) {
+function stableFileIdentity(metadata) {
+  if (!metadata
+      || typeof metadata.dev !== 'bigint'
+      || typeof metadata.ino !== 'bigint'
+      || metadata.dev < 0n
+      || metadata.ino <= 0n
+      || typeof metadata.isFile !== 'function'
+      || !metadata.isFile()) {
+    return null;
+  }
+  return Object.freeze({ dev: metadata.dev, ino: metadata.ino });
+}
+
+function validFileIdentity(identity) {
+  return identity
+    && typeof identity.dev === 'bigint'
+    && typeof identity.ino === 'bigint'
+    && identity.dev >= 0n
+    && identity.ino > 0n;
+}
+
+export async function captureOpenedFileIdentity(handle, code = 'state') {
+  if (!handle || typeof handle.stat !== 'function') {
+    throw stateError(code, 'opened file identity is unavailable');
+  }
+  let metadata;
+  try {
+    metadata = await handle.stat({ bigint: true });
+  } catch (error) {
+    throw stateError(code, `cannot inspect opened file identity: ${error.message}`, error);
+  }
+  const identity = stableFileIdentity(metadata);
+  if (!identity) throw stateError(code, 'opened file identity is unavailable or unreliable');
+  return identity;
+}
+
+export async function revalidateOwnedFileIdentity(
+  root,
+  target,
+  expectedPhysicalParent,
+  expectedIdentity,
+  {
+    allowMissing = false,
+    code = 'state',
+    deps: overrides = {},
+  } = {},
+) {
+  if (!validFileIdentity(expectedIdentity)) {
+    throw stateError(code, 'opened file identity proof is unavailable or unreliable');
+  }
+  const deps = stateDependencies(overrides);
+  const guard = await guardRegularTarget(root, target, {
+    expectedPhysicalParent,
+    allowMissing,
+    code,
+  });
+  if (!guard.exists) return guard;
+
+  let metadata;
+  try {
+    metadata = await deps.lstat(guard.target, { bigint: true });
+  } catch (error) {
+    throw stateError(code, `cannot inspect current file identity: ${error.message}`, error);
+  }
+  const observedIdentity = stableFileIdentity(metadata);
+  if (!observedIdentity
+      || observedIdentity.dev !== expectedIdentity.dev
+      || observedIdentity.ino !== expectedIdentity.ino) {
+    throw stateError(code, 'opened file identity changed');
+  }
+  return guard;
+}
+
+export async function safeCleanupOwnedFile(
+  root,
+  target,
+  expectedPhysicalParent,
+  expectedIdentity,
+  overrides = {},
+) {
   const deps = stateDependencies(overrides);
   let guard;
   try {
-    guard = await guardRegularTarget(root, target, {
+    guard = await revalidateOwnedFileIdentity(
+      root,
+      target,
       expectedPhysicalParent,
-      allowMissing: true,
-      code: 'cleanup',
-    });
+      expectedIdentity,
+      {
+        allowMissing: true,
+        code: 'cleanup',
+        deps,
+      },
+    );
   } catch {
     return false;
   }
@@ -301,7 +386,7 @@ export async function withStateMutationLock(root, operation, overrides = {}) {
 
   let ownerHandle;
   let expectedLockDirectory;
-  let ownerCreated = false;
+  let ownerIdentity;
   try {
     const physicalLock = await revalidatePhysicalParent(canonicalRoot, lockDirectory);
     if (comparable(physicalLock) !== comparable(lockDirectory)) {
@@ -314,15 +399,15 @@ export async function withStateMutationLock(root, operation, overrides = {}) {
       code: 'state-lock',
     });
     ownerHandle = await deps.open(ownerPath, 'wx');
-    ownerCreated = true;
+    ownerIdentity = await captureOpenedFileIdentity(ownerHandle, 'state-lock');
     await ownerHandle.writeFile(`${owner}\n`, 'utf8');
     await ownerHandle.sync();
     await ownerHandle.close();
     ownerHandle = undefined;
   } catch (error) {
     try { await ownerHandle?.close(); } catch {}
-    if (expectedLockDirectory && ownerCreated) {
-      await safeCleanupOwnedFile(canonicalRoot, ownerPath, expectedLockDirectory, deps);
+    if (expectedLockDirectory && ownerIdentity) {
+      await safeCleanupOwnedFile(canonicalRoot, ownerPath, expectedLockDirectory, ownerIdentity, deps);
     }
     if (expectedLockDirectory) {
       try {
@@ -352,17 +437,16 @@ export async function withStateMutationLock(root, operation, overrides = {}) {
         throw stateError('state-lock', 'mutation lock identity changed');
       }
       const physicalLock = await revalidatePhysicalParent(canonicalRoot, lockDirectory);
-      const ownerMetadata = await deps.lstat(ownerPath);
-      if (ownerMetadata.isSymbolicLink() || !ownerMetadata.isFile()) {
-        throw stateError('state-lock', 'mutation lock owner identity changed');
-      }
-      await guardRegularTarget(canonicalRoot, ownerPath, {
-        expectedPhysicalParent: physicalLock,
-        allowMissing: false,
+      await revalidateOwnedFileIdentity(canonicalRoot, ownerPath, physicalLock, ownerIdentity, {
         code: 'state-lock',
+        deps,
       });
       const observed = await deps.readFile(ownerPath, 'utf8');
       if (observed !== `${owner}\n`) throw stateError('state-lock', 'mutation lock owner changed');
+      await revalidateOwnedFileIdentity(canonicalRoot, ownerPath, physicalLock, ownerIdentity, {
+        code: 'state-lock',
+        deps,
+      });
       await deps.unlink(ownerPath);
       await deps.rmdir(lockDirectory);
     } catch (releaseError) {

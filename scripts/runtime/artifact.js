@@ -7,8 +7,10 @@ import { validateEnvelopeObject } from '../validate-envelope-emit.js';
 import { gardenSignature } from './authoring.js';
 import { buildScanContext } from './scan.js';
 import {
+  captureOpenedFileIdentity,
   guardRegularTarget,
   revalidatePhysicalParent,
+  revalidateOwnedFileIdentity,
   renameWithRetry,
   resolveAndValidateRealTargetRoot,
   RuntimeError,
@@ -149,8 +151,10 @@ async function atomicStateReplace({
 
   const temporary = `${target}.${process.pid}.${runtimeDeps.randomUUID()}.tmp`;
   let handle;
+  let temporaryIdentity;
   try {
     handle = await runtimeDeps.open(temporary, 'wx');
+    temporaryIdentity = await captureOpenedFileIdentity(handle, 'state');
     await handle.writeFile(bytes);
     await handle.sync();
     await handle.close();
@@ -163,11 +167,26 @@ async function atomicStateReplace({
       revalidate: async () => {
         await revalidatePhysicalParent(canonicalRoot, expectedStateDirectory, expectedStateDirectory);
         await revalidateTarget();
+        await revalidateOwnedFileIdentity(
+          canonicalRoot,
+          temporary,
+          expectedStateDirectory,
+          temporaryIdentity,
+          { code: 'state', deps: runtimeDeps },
+        );
       },
     });
   } catch (error) {
     try { await handle?.close(); } catch {}
-    await safeCleanupOwnedFile(canonicalRoot, temporary, expectedStateDirectory, runtimeDeps);
+    if (temporaryIdentity) {
+      await safeCleanupOwnedFile(
+        canonicalRoot,
+        temporary,
+        expectedStateDirectory,
+        temporaryIdentity,
+        runtimeDeps,
+      );
+    }
     throw error;
   }
 }
