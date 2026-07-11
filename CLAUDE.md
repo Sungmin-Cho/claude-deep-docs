@@ -4,7 +4,7 @@ Document gardening agent that validates the freshness of agent instruction files
 
 For detailed version history see [`CHANGELOG.md`](CHANGELOG.md) / [`CHANGELOG.ko.md`](CHANGELOG.ko.md). This file is intentionally short — it holds the overview, structure, and drift-resistant conventions only.
 
-To check the current version: `jq -r .version .claude-plugin/plugin.json`
+To check the current version: `node -p "JSON.parse(require('fs').readFileSync('.claude-plugin/plugin.json','utf8')).version"`
 
 > 📄 Documentation in this repo follows `docs/DOCS_RULE.md` (local maintainer guide — single-source-of-truth rules for README / CHANGELOG / this file).
 
@@ -18,7 +18,7 @@ To check the current version: `jq -r .version .claude-plugin/plugin.json`
 1. **`.deep-docs/last-scan.json`** — M3-envelope-wrapped scan result (documents, issues, scores), reusable for 10 min if HEAD SHA + worktree hash match
 2. **`.deep-docs/garden-ignored.json`** — permanent skip list keyed by signature (sha256 of type + path + content_preview)
 
-**Marketplace presence**: One of six plugins in the [claude-deep-suite](https://github.com/Sungmin-Cho/claude-deep-suite) marketplace.
+**Marketplace presence**: Published in the [claude-deep-suite](https://github.com/Sungmin-Cho/claude-deep-suite) marketplace for both Claude Code and Codex.
 
 ---
 
@@ -45,7 +45,9 @@ git push
 
 - Add a new version entry to both `CHANGELOG.md` and `CHANGELOG.ko.md`
 - Bump the version in `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `package.json`
-- If the `last-scan` schema changed, bump `producer_version` in the envelope (it's a literal sync with `plugin.json.version`, enforced by `scripts/verify-fixes.sh`)
+- If the `last-scan` schema changed, update its schema contract. The runtime reads the
+  plugin version dynamically when it emits an envelope; do not copy a version literal
+  into an agent definition.
 
 **Do NOT inline release notes in this CLAUDE.md** — CHANGELOG is the single source of truth.
 
@@ -57,7 +59,7 @@ git push
 deep-docs/
 ├── .claude-plugin/plugin.json
 ├── .codex-plugin/plugin.json          # plugin manifest
-├── package.json                         # `type: "module"`, npm scripts (validate:envelope, verify:fixes)
+├── package.json                         # private Node 22 ESM package; four portable npm gates
 ├── agents/
 │   ├── doc-scanner.md                  # spawned subagent — Steps 1–13 (discover, extract, validate,
 │   │                                    # track, freshen, dedup, size-check, rules, coverage, ratio,
@@ -79,8 +81,10 @@ deep-docs/
 │                                        # translation-pair, cli-whitelist, worktree-hash,
 │                                        # freshness-timestamp)
 ├── scripts/
+│   ├── deep-docs-runtime.js            # nine-command deterministic runtime entry
+│   ├── runtime/                        # scan, Git, artifact, state, and authoring modules
 │   ├── validate-envelope-emit.js       # envelope schema self-test (npm run validate:envelope)
-│   └── verify-fixes.sh                 # release-lint (grep matrix; hermetic, no install)
+│   └── verify-fixes.js                 # portable structural release-lint (npm run verify:fixes)
 ├── tests/
 │   └── fixtures/
 │       ├── sample-last-scan.json       # canonical M3-envelope-wrapped payload (schema 1.1, gaps[])
@@ -106,7 +110,7 @@ Root:
   payload: { ... }
 
 envelope.producer:          "deep-docs"
-envelope.producer_version:  literal sync with plugin.json.version (enforced)
+envelope.producer_version:  dynamically loaded from the plugin manifest by the runtime
 envelope.artifact_kind:     "last-scan"
 envelope.schema:            { name: "last-scan", version: "1.1" }   # payload schema; top-level schema_version stays "1.0"
 envelope.run_id:            ULID (26-char Crockford Base32, MSB-first, no I/L/O/U)
@@ -159,7 +163,10 @@ A `last-scan.json` is reusable if **all five** match:
 4. `envelope.git.head` matches current HEAD
 5. `payload.provenance.worktree_hash` matches recomputed (tracked diff + untracked file list / content, NUL-safe per-file `git hash-object`)
 
-**Garden artifact invalidation (H-2 defense)** — when `garden` applies ≥1 fix, it **deletes** `.deep-docs/last-scan.json` at session end. Next scan / garden / audit must unconditionally re-run (no TTL reuse).
+**Garden artifact invalidation (H-2 defense)** — when `garden` applies at least one
+project-document edit or authoring commit, it calls the guarded Node `scan-invalidate`
+command exactly once with the frozen artifact revision. A matching snapshot is removed,
+a newer snapshot is preserved, and an already absent snapshot is idempotent success.
 
 ### Freshness scoring (path-scoped, git only)
 
@@ -212,33 +219,34 @@ Session state (batch accept / reject type sets) is in-memory only and resets at 
 
 ## Workflows & Conventions
 
-### Bash / cross-platform portability
+### Node runtime / cross-platform portability
 
-- `shasum -a 1` (not `sha1sum`) with fallback chain for Linux / macOS
-- `stat -f` for macOS, `stat -c` for Linux (dual-support tested)
-- `wc -l` guarded by `[ -f ... ] &&` (glob no-match safety)
-- ULID generation via Python 3 one-liner (Crockford Base32 alphabet `0123456789ABCDEFGHJKMNPQRSTVWXYZ`; no `O` / `I` / `L` / `U`)
-- Never use `xargs -I{} sh -c` for filenames (RCE vector — use safer substitution)
+- Resolve the plugin root from `import.meta.url`, never from the target cwd or a
+  required environment variable.
+- Resolve target roots to their physical absolute path and preserve native Windows
+  drive, UNC, Unicode, and space-containing forms. Artifact child paths remain
+  forward-slash repository-relative.
+- Deterministic filesystem, Git, hashing, timestamp, envelope, and state mutations
+  belong to `scripts/deep-docs-runtime.js` and `scripts/runtime/`.
+- The authoring baseline is the exact raw-byte `sha256:<64 lowercase hex>` digest in
+  Git, non-Git, and missing-Git modes. `authoring-commit` rechecks it immediately
+  before an atomic approved write.
+- Runtime and verification entry points invoke no shell, PowerShell, `cmd`, Python,
+  or platform-specific utility.
 
 ### Conditional payload fields
 
-`path_check_enabled` is emitted only when the cli-whitelist `$PATH` toggle is ON. **Pattern**:
-
-```bash
-if [ "${PATH_CHECK_ENABLED:-0}" = 1 ]; then
-  PATH_CHECK_EMIT='"path_check_enabled": true,'
-else
-  PATH_CHECK_EMIT=''
-fi
-```
+`path_check_enabled` is emitted only when the cli-whitelist path-check toggle is
+explicitly enabled for the Node `scan-context` command.
 
 Always emitting or always omitting breaks the garden reuse-guard: config toggle changes must invalidate the artifact, and silent omission hides that drift from the 5-element check.
 
 ### Node conventions
 
-- Node 20+, `"type": "module"` (ESM)
-- Zero runtime deps in `scripts/` — `validate-envelope-emit.js` is a single-file validator
-- `verify-fixes.sh` is hermetic (`bash` + standard utilities; no `npm install` needed)
+- Node 22+, `"type": "module"` (ESM)
+- Zero runtime dependencies in `scripts/`
+- `verify-fixes.js` uses direct Node predicates and invokes only the current Node
+  executable for its envelope fixture check
 
 ---
 
@@ -256,11 +264,16 @@ Always emitting or always omitting breaks the garden reuse-guard: config toggle 
 ## Tests
 
 ```bash
-npm run validate:envelope     # node scripts/validate-envelope-emit.js — envelope contract self-test
-npm run verify:fixes          # bash scripts/verify-fixes.sh — grep-based release-lint matrix (zero-install)
+npm test                    # Node's built-in discovery of all tests
+npm run validate:envelope  # envelope contract self-test
+npm run validate:codex     # enforceable Codex manifest contract
+npm run verify:fixes       # portable Node structural release-lint matrix
 ```
 
-There is no `npm test` integration runner — tests are fixture-based (sample envelope validated against schema) plus the `verify-fixes.sh` grep matrix. The matrix grows each release (authoring checks added in v1.4.0); a green run (`Failed: 0`) is required before merge.
+All four commands must be green before merge; `verify:fixes` must report
+`Failed: 0`. The upstream official Codex `validate_plugin.py`, when installed,
+is an advisory maintainer-only check that may be absent. It is not part of the
+plugin runtime or the cross-platform test suite.
 
 ---
 
@@ -268,7 +281,7 @@ There is no `npm test` integration runner — tests are fixture-based (sample en
 
 | Question | Answer |
 |---|---|
-| Garden applied fixes but scan re-uses stale data? | Garden must delete `last-scan.json` at session end; if missing, file a bug — H-2 defense rule |
+| Garden applied fixes but scan re-uses stale data? | Verify one revision-guarded `scan-invalidate` call occurred after the successful mutation. |
 | `path_check_enabled` toggled but artifact reused? | Reuse guard should invalidate on config drift; check 5-element guard logic |
 | Need to permanently skip a recurring "fix"? | Choose option C in garden ("skip + record") — signature added to `garden-ignored.json` |
 | `size-warning` showing up as auto-fix? | Bug — `size-warning` MUST be `category: "audit-only"`; check `payload.documents[].issues[].category` |
