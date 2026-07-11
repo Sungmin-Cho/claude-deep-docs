@@ -12,7 +12,7 @@ To check the current version: `node -p "JSON.parse(require('fs').readFileSync('.
 
 ## Project Overview
 
-**deep-docs** is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin that runs document-gardening cycles over a project's documentation surface. Inspired by OpenAI's [Harness Engineering](https://openai.com/index/harness-engineering/) ("a doc-gardening agent runs repeatedly, finds stale docs, and opens fix PRs"), it splits work cleanly into **auto-fixable** mechanical issues (dead references, moved paths, stale CLI examples, duplicate blocks) and **audit-only** subjective signals (size, rule-code contradiction, coverage, map-vs-manual ratio).
+**deep-docs** is a Claude Code and Codex plugin that runs document-gardening cycles over a project's documentation surface. Inspired by OpenAI's [Harness Engineering](https://openai.com/index/harness-engineering/) ("a doc-gardening agent runs repeatedly, finds stale docs, and opens fix PRs"), it splits work cleanly into **auto-fixable** mechanical issues (dead references, moved paths, stale CLI examples, duplicate blocks) and **audit-only** subjective signals (size, rule-code contradiction, coverage, map-vs-manual ratio).
 
 **Two artifacts drive everything:**
 1. **`.deep-docs/last-scan.json`** — M3-envelope-wrapped scan result (documents, issues, scores), reusable for 10 min if HEAD SHA + worktree hash match
@@ -69,7 +69,7 @@ deep-docs/
 ├── skills/
 │   ├── deep-docs/
 │   │   └── SKILL.md                    # /deep-docs scan|garden|audit — user-invocable entry skill
-│   │                                    # (cross-platform: Claude Code slash + Codex/Copilot/Gemini Skill())
+│   │                                    # (Claude Code slash + Codex $deep-docs:deep-docs entry)
 │   └── deep-docs-workflow/
 │       ├── SKILL.md                    # core workflow reference (auto-loaded, not user-invocable)
 │       └── references/
@@ -116,7 +116,7 @@ envelope.schema:            { name: "last-scan", version: "1.1" }   # payload sc
 envelope.run_id:            ULID (26-char Crockford Base32, MSB-first, no I/L/O/U)
 envelope.generated_at:      RFC 3339 UTC second-precision
 envelope.git:               { head: 7–40 hex (or "0000000" non-git), branch, dirty: bool|"unknown" }
-envelope.provenance:        { source_artifacts: [{ path }, ...], tool_versions: { node, python, ... } }
+envelope.provenance:        { source_artifacts: [{ path }, ...], tool_versions: { node } }
 
 payload.provenance.is_git:              bool
 payload.provenance.worktree_hash:       sha1 40-hex (tracked + untracked files NUL-safe,
@@ -221,6 +221,8 @@ Session state (batch accept / reject type sets) is in-memory only and resets at 
 
 ### Node runtime / cross-platform portability
 
+- Support Node.js 22 on native Windows, macOS, and Linux. Git is optional;
+  Git Bash and Python are not required.
 - Resolve the plugin root from `import.meta.url`, never from the target cwd or a
   required environment variable.
 - Resolve target roots to their physical absolute path and preserve native Windows
@@ -233,6 +235,9 @@ Session state (batch accept / reject type sets) is in-memory only and resets at 
   before an atomic approved write.
 - Runtime and verification entry points invoke no shell, PowerShell, `cmd`, Python,
   or platform-specific utility.
+- The runtime rejects pre-existing symlink/junction escapes and revalidates physical
+  parents immediately before path-based I/O. The accepted same-user syscall-window
+  residual and safe-cleanup boundary are documented in `SECURITY.md`.
 
 ### Conditional payload fields
 
@@ -251,6 +256,11 @@ Always emitting or always omitting breaks the garden reuse-guard: config toggle 
 ---
 
 ## Slash commands
+
+Claude Code uses the slash commands below. Codex uses the equivalent
+`$deep-docs:deep-docs scan|garden|audit` entrypoint; its generic author loads
+`agents/doc-author.md`, receives read/search capability only, and keeps the same
+preview, removal-approval, and authoring-baseline protections.
 
 | Command | Signature | Description |
 |---|---|---|

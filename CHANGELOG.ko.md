@@ -7,6 +7,17 @@
 
 ---
 
+## [1.5.0] — 2026-07-10
+
+### 추가됨
+
+- Windows, macOS, Linux에서 scan, reuse, envelope, authoring 안전 작업을 위한 native Node.js 22 지원.
+- Claude Code와 동일한 scanner 및 읽기 전용 author 정의를 로드하는 Codex generic-subagent 라우팅.
+
+### 변경됨
+
+- 릴리스 검증이 세 운영체제 모두에서 shell-free Node 테스트/lint suite를 사용하도록 변경.
+
 ## [1.4.1] — 2026-07-07
 
 ### 수정됨

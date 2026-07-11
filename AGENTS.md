@@ -2,6 +2,8 @@
 
 Document gardening agent for agent instruction files and project docs. The repo
 keeps Claude Code compatibility and exposes Codex-native manifest metadata.
+Its supported local runtime is Node.js 22 on native Windows, macOS, and Linux;
+Git is optional, and Git Bash and Python are not required.
 
 To check the current version: `node -p "JSON.parse(require('fs').readFileSync('.claude-plugin/plugin.json','utf8')).version"`
 
@@ -22,6 +24,8 @@ To check the current version: `node -p "JSON.parse(require('fs').readFileSync('.
 
 Scan artifacts such as `.deep-docs/last-scan.json` belong to target projects,
 not this plugin repo, unless they are committed test fixtures.
+Deterministic scan, reuse, and authoring guards run through the bundled Node
+runtime. Agents remain responsible for semantic classification and approvals.
 
 ## Verification
 

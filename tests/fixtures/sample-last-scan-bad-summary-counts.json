@@ -3,7 +3,7 @@
   "schema_version": "1.0",
   "envelope": {
     "producer": "deep-docs",
-    "producer_version": "1.4.1",
+    "producer_version": "1.5.0",
     "artifact_kind": "last-scan",
     "run_id": "01KR0J7WBXJS57PBM04MYPHENX",
     "generated_at": "2026-05-07T10:00:00Z",
@@ -18,8 +18,7 @@
         { "path": "CLAUDE.md" }
       ],
       "tool_versions": {
-        "node": "v20.11.0",
-        "python": "3.12.3"
+        "node": "v22.0.0"
       }
     }
   },

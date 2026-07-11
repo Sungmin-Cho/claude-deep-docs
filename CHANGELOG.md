@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.0] — 2026-07-10
+
+### Added
+
+- Native Node.js 22 support for scan, reuse, envelope, and authoring safety operations on Windows, macOS, and Linux.
+- Codex generic-subagent routing that loads the same scanner and read-only author definitions used by Claude Code.
+
+### Changed
+
+- Release verification now uses a shell-free Node test/lint suite across all three operating systems.
+
 ## [1.4.1] — 2026-07-07
 
 ### Fixed

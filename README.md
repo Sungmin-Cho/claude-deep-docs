@@ -25,37 +25,41 @@ Via the `claude-deep-suite` marketplace:
 
 ```bash
 # Claude Code
-/plugin install deep-docs@claude-deep-suite
+claude plugin marketplace add Sungmin-Cho/claude-deep-suite
+claude plugin install deep-docs@claude-deep-suite
 
 # Codex
-codex plugin install deep-docs
+codex plugin marketplace add Sungmin-Cho/claude-deep-suite
+codex plugin add deep-docs@claude-deep-suite
 ```
 
-Or directly from this repo:
-
-```bash
-claude plugin add https://github.com/Sungmin-Cho/claude-deep-docs.git
-```
-
-After install, run `/deep-docs` in any project directory. The plugin auto-creates `.deep-docs/` on first use — no configuration file required.
+After install, use `/deep-docs` in Claude Code or `$deep-docs:deep-docs` in Codex from any project directory. The plugin auto-creates `.deep-docs/` on first use — no configuration file required.
 
 ## Quick start
 
-```bash
-/deep-docs scan      # detect stale references, moved paths, and outdated examples
-/deep-docs garden    # auto-fix safe issues, with a diff preview and confirmation
-/deep-docs audit     # quantitative quality report with per-file scores
+```text
+# Claude Code
+/deep-docs scan
+/deep-docs garden
+/deep-docs audit
+
+# Codex
+$deep-docs:deep-docs scan
+$deep-docs:deep-docs garden
+$deep-docs:deep-docs audit
 ```
 
-Running `/deep-docs` with no argument prompts you to choose a subcommand interactively. Codex, Copilot CLI, and Gemini CLI users invoke the same workflow with `Skill({ skill: "deep-docs:deep-docs", args: "scan|garden|audit" })`.
+Running either host entrypoint with no argument prompts you to choose a subcommand interactively.
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `/deep-docs scan` | Detect dead references, moved paths, stale examples, and duplicate blocks |
-| `/deep-docs garden` | Auto-fix issues with a diff preview and user confirmation |
-| `/deep-docs audit` | Score each document across size, freshness, reference accuracy, and duplication |
+| Claude Code | Codex | Description |
+|---|---|---|
+| `/deep-docs scan` | `$deep-docs:deep-docs scan` | Detect dead references, moved paths, stale examples, and duplicate blocks |
+| `/deep-docs garden` | `$deep-docs:deep-docs garden` | Auto-fix issues with a diff preview and user confirmation |
+| `/deep-docs audit` | `$deep-docs:deep-docs audit` | Score each document across size, freshness, reference accuracy, and duplication |
+
+The supported local runtime is Node.js 22 on native Windows, macOS, and Linux. Git is optional; Git Bash and Python are not required. The bundled Node runtime enforces scan, reuse, and authoring guards, while agents retain ownership of approvals and semantic classification.
 
 ## Scan rules
 
@@ -95,7 +99,7 @@ When you run `/deep-docs garden`, the agent:
 1. **Reuses** `.deep-docs/last-scan.json` if it is fresh (under 10 minutes old, matching HEAD and worktree); otherwise re-runs the scan first.
 2. **Filters to auto-fixable issues** only — size warnings stay in the audit-only summary.
 3. **For each issue**, shows a diff and asks for confirmation before applying the edit.
-4. **Authoring sub-flow** — for each `gaps[]` entry, `garden` spawns the read-only `doc-author` agent, receives a structured draft, captures a TOCTOU baseline (so a file changed since the scan is never silently overwritten), asks per-removal whether to apply / revise / keep, re-inserts any unapproved removals, and only then writes the file itself. `doc-author` never writes — it has no `Write` or `Bash` tool.
+4. **Authoring sub-flow** — for each `gaps[]` entry, `garden` spawns the read-only `doc-author` agent, receives a structured draft, captures a TOCTOU baseline (so a file changed since the scan is never silently overwritten), asks per-removal whether to apply / revise / keep, re-inserts any unapproved removals, and only then writes the file itself. In Codex, the generic author first loads the same agent definition and receives read/search capability only. On both hosts, the author produces a draft and never writes the target document.
 5. **Summarizes** fixes applied, documents authored, skipped, and audit-only items noted for reference.
 
 Audit-only items are always shown at the end as informational notes, never modified automatically.
@@ -128,7 +132,7 @@ The overall score is rounded to one decimal. If a doc has no outbound references
 
 ## Scan artifact
 
-Every scan writes `.deep-docs/last-scan.json`, wrapped in the [claude-deep-suite M3 cross-plugin envelope](https://github.com/Sungmin-Cho/claude-deep-suite) (top-level `schema_version` + `envelope` + `payload`). `garden` and `audit` reuse it only when the envelope identity, schema version, 10-minute TTL, `envelope.git.head`, and `payload.provenance.worktree_hash` all match; otherwise the scan re-runs. In non-git environments only the TTL applies, and the envelope emits a sentinel `git` block.
+Every scan writes `.deep-docs/last-scan.json`, wrapped in the [claude-deep-suite M3 cross-plugin envelope](https://github.com/Sungmin-Cho/claude-deep-suite) (top-level `schema_version` + `envelope` + `payload`). `garden` and `audit` reuse it only when the envelope identity, schema version, 10-minute TTL, `envelope.git.head`, and `payload.provenance.worktree_hash` all match; otherwise the scan re-runs. A non-Git target has no trustworthy change detector, so reuse fails closed and the envelope emits a sentinel `git` block.
 
 ## Links
 
