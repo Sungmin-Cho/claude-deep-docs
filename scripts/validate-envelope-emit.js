@@ -55,10 +55,13 @@ function isNonNegInt(n) {
   return typeof n === 'number' && Number.isInteger(n) && n >= 0;
 }
 
-const errors = [];
-function fail(msg) { errors.push(msg); }
+function isPlainObject(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
 
-function reportUnknownKeys(obj, allowed, label, allowXExt) {
+function reportUnknownKeys(obj, allowed, label, allowXExt, fail) {
   if (!obj || typeof obj !== 'object') return;
   const extra = Object.keys(obj).filter((k) => !allowed.has(k) && !(allowXExt && k.startsWith('x-')));
   if (extra.length > 0) {
@@ -71,36 +74,20 @@ function loadPlugin() {
   return JSON.parse(raw);
 }
 
-function check(target) {
-  const path = resolve(target);
-  let raw;
-  try {
-    raw = readFileSync(path, 'utf8');
-  } catch (e) {
-    fail(`cannot read ${path}: ${e.message}`);
-    return;
-  }
-  let data;
-  try {
-    data = JSON.parse(raw);
-  } catch (e) {
-    fail(`invalid JSON in ${path}: ${e.message}`);
-    return;
-  }
-
+function checkEnvelopeObject(data, pluginVersion, fail) {
   // 1. top-level envelope wrapper version (locked).
   if (data.schema_version !== '1.0') {
     fail(`schema_version must be "1.0" (got ${JSON.stringify(data.schema_version)})`);
   }
-  if (typeof data.envelope !== 'object' || data.envelope === null) {
+  if (!isPlainObject(data.envelope)) {
     fail('envelope block missing or not an object');
     return;
   }
   if (!('payload' in data)) fail('payload field missing');
 
   // additionalProperties: false enforcement (suite-spec mirror; allows ^x- at root + envelope).
-  reportUnknownKeys(data, ALLOWED_ROOT_KEYS, 'root', true);
-  reportUnknownKeys(data.envelope, ALLOWED_ENVELOPE_KEYS, 'envelope', true);
+  reportUnknownKeys(data, ALLOWED_ROOT_KEYS, 'root', true, fail);
+  reportUnknownKeys(data.envelope, ALLOWED_ENVELOPE_KEYS, 'envelope', true, fail);
 
   const env = data.envelope;
 
@@ -128,9 +115,8 @@ function check(target) {
   }
 
   // 3. producer_version === plugin.json.version (single source of truth).
-  const plugin = loadPlugin();
-  if (env.producer_version !== plugin.version) {
-    fail(`envelope.producer_version (${JSON.stringify(env.producer_version)}) must match plugin.json.version (${JSON.stringify(plugin.version)})`);
+  if (env.producer_version !== pluginVersion) {
+    fail(`envelope.producer_version (${JSON.stringify(env.producer_version)}) must match plugin.json.version (${JSON.stringify(pluginVersion)})`);
   }
   if (!SEMVER_RE.test(env.producer_version || '')) {
     fail(`envelope.producer_version must be SemVer 2.0.0 strict (got ${JSON.stringify(env.producer_version)})`);
@@ -150,7 +136,7 @@ function check(target) {
   if (!env.git || typeof env.git !== 'object') {
     fail('envelope.git missing');
   } else {
-    reportUnknownKeys(env.git, ALLOWED_GIT_KEYS, 'envelope.git', false);
+    reportUnknownKeys(env.git, ALLOWED_GIT_KEYS, 'envelope.git', false, fail);
     if (!GIT_HEAD_RE.test(env.git.head || '')) {
       fail(`envelope.git.head must match ^[a-f0-9]{7,40}$ (got ${JSON.stringify(env.git.head)})`);
     }
@@ -166,7 +152,7 @@ function check(target) {
   if (!env.provenance || typeof env.provenance !== 'object') {
     fail('envelope.provenance missing');
   } else {
-    reportUnknownKeys(env.provenance, ALLOWED_PROVENANCE_KEYS, 'envelope.provenance', false);
+    reportUnknownKeys(env.provenance, ALLOWED_PROVENANCE_KEYS, 'envelope.provenance', false, fail);
     if (!Array.isArray(env.provenance.source_artifacts)) {
       fail('envelope.provenance.source_artifacts must be an array');
     } else {
@@ -174,7 +160,7 @@ function check(target) {
         if (!sa || typeof sa.path !== 'string' || sa.path.length === 0) {
           fail(`envelope.provenance.source_artifacts[${idx}].path must be non-empty string`);
         } else {
-          reportUnknownKeys(sa, ALLOWED_SOURCE_ARTIFACT_KEYS, `envelope.provenance.source_artifacts[${idx}]`, false);
+          reportUnknownKeys(sa, ALLOWED_SOURCE_ARTIFACT_KEYS, `envelope.provenance.source_artifacts[${idx}]`, false, fail);
         }
       });
     }
@@ -194,7 +180,7 @@ function check(target) {
 
   // schema block additionalProperties (already verified .name/.version present).
   if (env.schema && typeof env.schema === 'object') {
-    reportUnknownKeys(env.schema, ALLOWED_SCHEMA_KEYS, 'envelope.schema', false);
+    reportUnknownKeys(env.schema, ALLOWED_SCHEMA_KEYS, 'envelope.schema', false, fail);
   }
 
   // 8. payload structure (deep-docs/last-scan v1.0 shape).
@@ -237,7 +223,7 @@ function check(target) {
         if (!g || typeof g !== 'object' || Array.isArray(g)) {
           fail(`payload.gaps[${idx}] must be a non-null, non-array object`); return;
         }
-        reportUnknownKeys(g, ALLOWED_GAP_KEYS, `payload.gaps[${idx}]`, false);
+        reportUnknownKeys(g, ALLOWED_GAP_KEYS, `payload.gaps[${idx}]`, false, fail);
         if (g.category !== 'authoring') fail(`payload.gaps[${idx}].category must be "authoring"`);
         // type enum + exists boolean (write-path input — block malformed scanner output).
         if (!GAP_TYPES.has(g.type)) {
@@ -250,7 +236,7 @@ function check(target) {
         if (!sp || typeof sp !== 'object' || Array.isArray(sp)) {
           fail(`payload.gaps[${idx}].authoring_spec must be a non-null object`); return;
         }
-        reportUnknownKeys(sp, ALLOWED_AUTHORING_SPEC_KEYS, `payload.gaps[${idx}].authoring_spec`, false);
+        reportUnknownKeys(sp, ALLOWED_AUTHORING_SPEC_KEYS, `payload.gaps[${idx}].authoring_spec`, false, fail);
         if (!(sp.doc_kind in DOC_KIND_TO_PATH)) {
           fail(`payload.gaps[${idx}].authoring_spec.doc_kind must be one of ${Object.keys(DOC_KIND_TO_PATH).join('|')}`);
         }
@@ -349,17 +335,50 @@ function check(target) {
     if (!WORKTREE_HASH_RE.test(pl.provenance.worktree_hash || '')) {
       fail(`payload.provenance.worktree_hash must match ^[a-f0-9]{40}$ or "no-git" (got ${JSON.stringify(pl.provenance.worktree_hash)})`);
     }
+    if ('path_check_enabled' in pl.provenance && pl.provenance.path_check_enabled !== true) {
+      fail(`payload.provenance.path_check_enabled must be literal true when present (got ${JSON.stringify(pl.provenance.path_check_enabled)})`);
+    }
   }
 }
 
-const target = process.argv[2] || DEFAULT_FIXTURE;
-check(target);
-
-if (errors.length > 0) {
-  for (const e of errors) {
-    process.stderr.write(`validate-envelope-emit: ${e}\n`);
+export function validateEnvelopeObject(data, pluginVersion) {
+  const errors = [];
+  const fail = (message) => errors.push(message);
+  if (!isPlainObject(data)) {
+    fail('root must be a plain object');
+    return errors;
   }
-  process.exit(1);
+  checkEnvelopeObject(data, pluginVersion, fail);
+  return errors;
 }
 
-process.stdout.write(`✓ ${target} matches deep-docs M3 envelope contract\n`);
+export function validateEnvelopeFile(target) {
+  const path = resolve(target);
+  let raw;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch (error) {
+    return [`cannot read ${path}: ${error.message}`];
+  }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (error) {
+    return [`invalid JSON in ${path}: ${error.message}`];
+  }
+  return validateEnvelopeObject(data, loadPlugin().version);
+}
+
+const modulePath = fileURLToPath(import.meta.url);
+if (process.argv[1] && resolve(process.argv[1]) === modulePath) {
+  const target = process.argv[2] || DEFAULT_FIXTURE;
+  const errors = validateEnvelopeFile(target);
+  if (errors.length > 0) {
+    for (const error of errors) {
+      process.stderr.write(`validate-envelope-emit: ${error}\n`);
+    }
+    process.exitCode = 1;
+  } else {
+    process.stdout.write(`✓ ${target} matches deep-docs M3 envelope contract\n`);
+  }
+}

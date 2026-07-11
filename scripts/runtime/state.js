@@ -1,9 +1,14 @@
 import {
   lstat,
   mkdir,
+  open,
   readFile,
   realpath,
+  rename as fsRename,
+  rmdir,
+  unlink,
 } from 'node:fs/promises';
+import { randomUUID as cryptoRandomUUID } from 'node:crypto';
 import path from 'node:path';
 
 export class RuntimeError extends Error {
@@ -145,6 +150,227 @@ export async function ensureRealStateDirectory(root) {
   return physical;
 }
 
+export async function validateRealStateDirectory(root) {
+  const canonicalRoot = await resolveAndValidateRealTargetRoot(root);
+  const stateDirectory = path.join(canonicalRoot, '.deep-docs');
+  let metadata;
+  try {
+    metadata = await lstat(stateDirectory);
+  } catch (error) {
+    throw stateError('state', `cannot inspect .deep-docs: ${error.message}`, error);
+  }
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw stateError('state', '.deep-docs must be a non-symlink directory');
+  }
+  const physical = await revalidatePhysicalParent(canonicalRoot, stateDirectory);
+  if (comparable(physical) !== comparable(stateDirectory)) {
+    throw stateError('state', '.deep-docs physical directory changed');
+  }
+  return physical;
+}
+
+export async function guardRegularTarget(
+  root,
+  target,
+  {
+    expectedPhysicalParent,
+    allowMissing = true,
+    code = 'state',
+  } = {},
+) {
+  const canonicalRoot = await resolveAndValidateRealTargetRoot(root);
+  const absoluteTarget = path.isAbsolute(target) ? path.resolve(target) : path.resolve(canonicalRoot, target);
+  const parent = path.dirname(absoluteTarget);
+  const physicalParent = await revalidatePhysicalParent(
+    canonicalRoot,
+    parent,
+    expectedPhysicalParent,
+  );
+  let metadata;
+  try {
+    metadata = await lstat(absoluteTarget);
+  } catch (error) {
+    if (error.code === 'ENOENT' && allowMissing) {
+      return { exists: false, target: absoluteTarget, physicalParent };
+    }
+    throw stateError(code, `cannot inspect target: ${error.message}`, error);
+  }
+  if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw stateError(code, 'target must be a regular non-symlink file');
+  }
+  return { exists: true, target: absoluteTarget, physicalParent, metadata };
+}
+
+function sleepFor(milliseconds) {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
+}
+
+export function stateDependencies(overrides = {}) {
+  return {
+    mkdir,
+    open,
+    readFile,
+    rename: fsRename,
+    rmdir,
+    unlink,
+    lstat,
+    randomUUID: cryptoRandomUUID,
+    sleep: sleepFor,
+    lockRetryDelays: [0, 25, 50, 100, 200],
+    renameRetryDelays: [0, 10, 25, 50],
+    ...overrides,
+  };
+}
+
+export async function renameWithRetry(source, destination, overrides = {}) {
+  // Node 22 has no portable dirfd/openat/renameat no-follow API. Each retry
+  // therefore revalidates immediately before the path-based syscall; a
+  // same-user swap in the remaining validation-to-syscall micro-window is the
+  // documented residual and is not claimed to be closed by these guards.
+  const deps = stateDependencies(overrides);
+  const delays = deps.renameRetryDelays;
+  let lastError;
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (attempt > 0 && delays[attempt] > 0) await deps.sleep(delays[attempt]);
+    if (typeof deps.revalidate === 'function') await deps.revalidate(attempt);
+    try {
+      await deps.rename(source, destination);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt === delays.length - 1) {
+        throw stateError('rename', `atomic rename failed: ${error.message}`, error);
+      }
+    }
+  }
+  throw stateError('rename', `atomic rename failed: ${lastError?.message ?? 'unknown error'}`, lastError);
+}
+
+export async function safeCleanupOwnedFile(root, target, expectedPhysicalParent, overrides = {}) {
+  const deps = stateDependencies(overrides);
+  let guard;
+  try {
+    guard = await guardRegularTarget(root, target, {
+      expectedPhysicalParent,
+      allowMissing: true,
+      code: 'cleanup',
+    });
+  } catch {
+    return false;
+  }
+  if (!guard.exists) return true;
+  try {
+    await deps.unlink(guard.target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function withStateMutationLock(root, operation, overrides = {}) {
+  const deps = stateDependencies(overrides);
+  const canonicalRoot = await resolveAndValidateRealTargetRoot(root);
+  const stateDirectory = overrides.createState === false
+    ? await validateRealStateDirectory(canonicalRoot)
+    : await ensureRealStateDirectory(canonicalRoot);
+  const expectedStateDirectory = await revalidatePhysicalParent(
+    canonicalRoot,
+    stateDirectory,
+    stateDirectory,
+  );
+  const lockDirectory = path.join(stateDirectory, '.mutation-lock');
+  const ownerPath = path.join(lockDirectory, 'owner');
+  const owner = deps.randomUUID();
+  const delays = deps.lockRetryDelays;
+  let acquired = false;
+
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (attempt > 0 && delays[attempt] > 0) await deps.sleep(delays[attempt]);
+    await revalidatePhysicalParent(canonicalRoot, stateDirectory, expectedStateDirectory);
+    try {
+      await deps.mkdir(lockDirectory);
+      acquired = true;
+      break;
+    } catch (error) {
+      if (error.code !== 'EEXIST') {
+        throw stateError('state-lock', `cannot acquire mutation lock: ${error.message}`, error);
+      }
+    }
+  }
+  if (!acquired) throw stateError('state-busy', 'state mutation lock is busy');
+
+  let ownerHandle;
+  let expectedLockDirectory;
+  let ownerCreated = false;
+  try {
+    const physicalLock = await revalidatePhysicalParent(canonicalRoot, lockDirectory);
+    if (comparable(physicalLock) !== comparable(lockDirectory)) {
+      throw stateError('state-lock', 'mutation lock physical directory changed');
+    }
+    expectedLockDirectory = physicalLock;
+    await guardRegularTarget(canonicalRoot, ownerPath, {
+      expectedPhysicalParent: physicalLock,
+      allowMissing: true,
+      code: 'state-lock',
+    });
+    ownerHandle = await deps.open(ownerPath, 'wx');
+    ownerCreated = true;
+    await ownerHandle.writeFile(`${owner}\n`, 'utf8');
+    await ownerHandle.sync();
+    await ownerHandle.close();
+    ownerHandle = undefined;
+  } catch (error) {
+    try { await ownerHandle?.close(); } catch {}
+    if (expectedLockDirectory && ownerCreated) {
+      await safeCleanupOwnedFile(canonicalRoot, ownerPath, expectedLockDirectory, deps);
+    }
+    if (expectedLockDirectory) {
+      try {
+        await revalidatePhysicalParent(canonicalRoot, lockDirectory, expectedLockDirectory);
+        await deps.rmdir(lockDirectory);
+      } catch {}
+    }
+    throw stateError('state-lock', `cannot initialize mutation lock: ${error.message}`, error);
+  }
+
+  let operationError;
+  try {
+    return await operation({
+      canonicalRoot,
+      stateDirectory,
+      expectedStateDirectory,
+      deps,
+    });
+  } catch (error) {
+    operationError = error;
+    throw error;
+  } finally {
+    try {
+      await revalidatePhysicalParent(canonicalRoot, stateDirectory, expectedStateDirectory);
+      const lockMetadata = await deps.lstat(lockDirectory);
+      if (lockMetadata.isSymbolicLink() || !lockMetadata.isDirectory()) {
+        throw stateError('state-lock', 'mutation lock identity changed');
+      }
+      const physicalLock = await revalidatePhysicalParent(canonicalRoot, lockDirectory);
+      const ownerMetadata = await deps.lstat(ownerPath);
+      if (ownerMetadata.isSymbolicLink() || !ownerMetadata.isFile()) {
+        throw stateError('state-lock', 'mutation lock owner identity changed');
+      }
+      await guardRegularTarget(canonicalRoot, ownerPath, {
+        expectedPhysicalParent: physicalLock,
+        allowMissing: false,
+        code: 'state-lock',
+      });
+      const observed = await deps.readFile(ownerPath, 'utf8');
+      if (observed !== `${owner}\n`) throw stateError('state-lock', 'mutation lock owner changed');
+      await deps.unlink(ownerPath);
+      await deps.rmdir(lockDirectory);
+    } catch (releaseError) {
+      if (!operationError) throw releaseError;
+    }
+  }
+}
+
 /**
  * Read a regular, non-symlink JSON request below a previously validated root.
  * The parent is checked both before and immediately before the read.
@@ -172,9 +398,16 @@ export async function readStateRequest(root, requestPath) {
   }
   await revalidatePhysicalParent(canonicalRoot, parent, expectedParent);
   try {
+    metadata = await lstat(target);
+  } catch (error) {
+    throw stateError('request', `cannot re-inspect request: ${error.message}`, error);
+  }
+  if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw stateError('request', 'request must remain a regular non-symlink file');
+  }
+  try {
     return await readFile(target);
   } catch (error) {
     throw stateError('request', `cannot read request: ${error.message}`, error);
   }
 }
-
