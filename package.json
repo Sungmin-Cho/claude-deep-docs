@@ -8,8 +8,12 @@
     "name": "Sungmin-Cho"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "keywords": ["documentation", "gardening", "claude-md", "agents-md", "freshness"],
   "scripts": {
+    "test": "node --test",
     "validate:envelope": "node scripts/validate-envelope-emit.js",
     "verify:fixes": "bash scripts/verify-fixes.sh"
   }
