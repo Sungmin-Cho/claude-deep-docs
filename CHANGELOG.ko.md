@@ -7,6 +7,16 @@
 
 ---
 
+## [1.6.0] — 2026-07-20
+
+### 변경됨
+
+- **AGENTS-first 단일 소스 문서 정책 (D13)** — 대상 프로젝트의 기본 관리 정책: 공용 에이전트 지침은 `AGENTS.md`(기본 관리 문서)에 두고, `CLAUDE.md`는 `@AGENTS.md` import + Claude Code 특화 내용만 담는 thin wrapper로 유지합니다.
+  - `scan`: root `CLAUDE.md`가 존재하면 `AGENTS.md` 부재도 gap으로 잡습니다(공용 콘텐츠가 이관 소스). `@AGENTS.md` import 없이 공용 지침을 담은 `CLAUDE.md`는 `thin-doc` 재구성 후보(D13 wrapper deficit)입니다.
+  - `garden`: 같은 세션에서 `AGENTS.md` gap을 `CLAUDE.md` gap보다 먼저 처리합니다. `@AGENTS.md` import는 `AGENTS.md`가 존재하거나 같은 세션에서 커밋된 경우에만 삽입합니다(dead import 금지). 공용 콘텐츠는 기존 per-removal 승인 흐름으로 `CLAUDE.md`에서 `AGENTS.md`로 이관되며, 미승인 이관은 재삽입됩니다(default-keep 유지). `AGENTS.md` draft를 거부하면 `CLAUDE.md`는 단독 full 문서로 유지됩니다.
+  - `doc-author`: `CLAUDE.md` thin wrapper 골격 신설(목표 ≤30줄) + 단독 full 골격 fallback. 심볼릭 링크 공존 제안은 제거했습니다.
+- 스키마 변경 없음: envelope `1.0` / last-scan payload `1.1`, gap 필드, category trichotomy 는 그대로입니다.
+
 ## [1.5.0] — 2026-07-10
 
 ### 추가됨

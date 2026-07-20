@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] — 2026-07-20
+
+### Changed
+
+- **AGENTS-first single-source document policy (D13)** — the default management policy for target projects: shared agent instructions live in `AGENTS.md` (the primary managed document), while `CLAUDE.md` is kept as a thin wrapper — an `@AGENTS.md` import plus Claude Code-specific content only.
+  - `scan`: a missing `AGENTS.md` is now also gapped when a root `CLAUDE.md` exists (its shared content is the migration source); a `CLAUDE.md` carrying shared instructions without the `@AGENTS.md` import is a `thin-doc` restructure candidate (D13 wrapper deficit).
+  - `garden`: `AGENTS.md` gaps are processed before `CLAUDE.md` gaps in the same session; the `@AGENTS.md` import is inserted only when `AGENTS.md` exists or was committed in that session (no dead imports). Shared content migrates from `CLAUDE.md` to `AGENTS.md` through the existing per-removal approval flow — unapproved migrations are re-inserted (default-keep unchanged). If the `AGENTS.md` draft is rejected, `CLAUDE.md` stays a standalone full document.
+  - `doc-author`: new thin-wrapper skeleton for `CLAUDE.md` (target ≤30 lines) with the standalone full-skeleton fallback; symlink coexistence is no longer proposed.
+- No schema change: envelope `1.0` / last-scan payload `1.1`, gap fields, and the category trichotomy are unchanged.
+
 ## [1.5.0] — 2026-07-10
 
 ### Added

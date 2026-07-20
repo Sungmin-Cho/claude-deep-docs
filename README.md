@@ -87,8 +87,10 @@ The scanner classifies every finding into one of three categories.
 
 | Rule | Description | How it is handled |
 |---|---|---|
-| Missing doc | A recommended `CLAUDE.md`/`AGENTS.md` (build manifest + source dirs) or `ARCHITECTURE.md` (~10k+ LOC) does not exist | `garden` drafts it from a code analysis and writes it after approval |
-| Thin doc | An existing doc falls clearly short of its official skeleton | `garden` restructures it, preserving your unique content by default |
+| Missing doc | A recommended `AGENTS.md`/`CLAUDE.md` (build manifest + source dirs; `AGENTS.md` also when a root `CLAUDE.md` already exists) or `ARCHITECTURE.md` (~10k+ LOC) does not exist | `garden` drafts it from a code analysis and writes it after approval |
+| Thin doc | An existing doc falls clearly short of its official skeleton — including a `CLAUDE.md` that carries shared instructions without the `@AGENTS.md` import | `garden` restructures it, preserving your unique content by default |
+
+The default management policy is **AGENTS-first single source**: shared agent instructions live in `AGENTS.md`, while `CLAUDE.md` is kept as a thin wrapper — an `@AGENTS.md` import plus Claude Code-specific notes only. `garden` authors `AGENTS.md` first and only then converts `CLAUDE.md`, migrating shared content with per-removal approval (if you decline the `AGENTS.md` draft, `CLAUDE.md` stays a standalone full document).
 
 Authoring uses built-in rules from `skills/deep-docs-workflow/references/authoring-rules/` (CLAUDE.md follows Anthropic's memory guide, AGENTS.md the OpenAI Codex/agents.md standard, ARCHITECTURE.md the matklad standard). Length targets are soft for `CLAUDE.md`/`ARCHITECTURE.md` line counts (an over-long draft is reported as a non-blocking size warning, matching the line-based `audit`), while `AGENTS.md` enforces a hard 32&nbsp;KiB byte ceiling (Codex truncates beyond it) — note this byte/line asymmetry: authoring considers the Codex byte budget, `audit` stays line-based.
 

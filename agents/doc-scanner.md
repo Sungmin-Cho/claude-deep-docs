@@ -103,11 +103,13 @@ Runtime CommonMark segments 안에서만 exact 3-line windows를 비교한다. S
 
 ### 9. Missing/thin document gaps
 
-Root-only `CLAUDE.md`, `AGENTS.md`, `ARCHITECTURE.md`만 후보이며 runtime document/ignore facts를 따른다.
+Root-only `CLAUDE.md`, `AGENTS.md`, `ARCHITECTURE.md`만 후보이며 runtime document/ignore facts를 따른다. 문서 관리 기본 정책은 **AGENTS.md 우선 단일 소스(authoring-rules D13)**: 공용 지침은 AGENTS.md, CLAUDE.md는 `@AGENTS.md` import + Claude Code 특화 내용만 담는 thin wrapper다.
 
-- missing CLAUDE/AGENTS: build manifest와 source directory가 모두 있을 때만, severity medium.
+- missing AGENTS: build manifest와 source directory가 모두 있거나 **root CLAUDE.md가 존재할 때**, severity medium. root CLAUDE.md가 있으면 rationale에 공용 콘텐츠 이관 대상임을 명시한다.
+- missing CLAUDE: build manifest와 source directory가 모두 있을 때만, severity medium. AGENTS.md가 존재하거나 같은 scan에서 missing-doc(AGENTS.md) gap이 나오면 create 골격은 thin wrapper, 아니면 단독 full 골격이다.
 - missing ARCHITECTURE: 약 10k LOC 이상일 때만, severity high.
 - thin document: required-section deficit 또는 `uncovered_modules[] / total_modules`가 authoring rule threshold를 넘는 명백한 경우만, severity low~medium.
+- thin CLAUDE (D13 wrapper deficit): root CLAUDE.md에 `@AGENTS.md` import가 없고 런타임 공용 지침을 담고 있으며, AGENTS.md가 존재하거나 같은 scan에서 missing-doc(AGENTS.md) gap이 나오는 경우 — `thin-doc`(mode `restructure`), severity low~medium. evidence에 import 부재를 명시한다.
 - ignored target은 제외한다. Monorepo package-local documents는 v2까지 생성하지 않는다.
 - `missing-doc`은 `exists: false`, `mode: "create"`; `thin-doc`은 `exists: true`, `mode: "restructure"`. `doc_kind`와 target path는 root-only allowlist와 일치해야 한다.
 

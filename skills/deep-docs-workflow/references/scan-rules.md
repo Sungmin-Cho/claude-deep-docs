@@ -73,17 +73,18 @@ Report direct-instruction versus external-pointer proportions without a target s
 
 ### 9. Missing/thin root document
 
-Only root `CLAUDE.md`, `AGENTS.md`, and `ARCHITECTURE.md` qualify.
+Only root `CLAUDE.md`, `AGENTS.md`, and `ARCHITECTURE.md` qualify. The default management policy is AGENTS-first single source (authoring-rules D13): shared agent instructions live in `AGENTS.md`, and `CLAUDE.md` is a thin wrapper holding an `@AGENTS.md` import plus Claude Code-specific content only.
 
-- Missing CLAUDE/AGENTS requires both a recognized build manifest and a source directory; severity medium.
+- Missing AGENTS requires a recognized build manifest and a source directory, or an existing root `CLAUDE.md` (whose shared content becomes the migration source, stated in the rationale); severity medium.
+- Missing CLAUDE requires both a recognized build manifest and a source directory; severity medium. The create skeleton is the thin wrapper when `AGENTS.md` exists or a missing-doc AGENTS gap is emitted in the same scan, otherwise the standalone full skeleton.
 - Missing ARCHITECTURE requires approximately 10k or more source lines; severity high.
-- Thin documents are conservative: required-section deficit meets the authoring-rule threshold or Rule 7's `uncovered_modules[] / total_modules` meets its threshold; severity low to medium.
+- Thin documents are conservative: required-section deficit meets the authoring-rule threshold or Rule 7's `uncovered_modules[] / total_modules` meets its threshold; severity low to medium. Additionally, a root `CLAUDE.md` that lacks the `@AGENTS.md` import while carrying shared runtime instructions is a thin-doc restructure candidate (D13 wrapper deficit) when `AGENTS.md` exists or a missing-doc AGENTS gap is emitted in the same scan; the evidence states the missing import.
 - A Git-ignored target is excluded. Monorepo package-local targets are deferred to v2.
 - `missing-doc` requires `exists: false` and `mode: "create"`.
 - `thin-doc` requires `exists: true` and `mode: "restructure"`.
 - `doc_kind` must map exactly to the root target allowlist.
 
-Scanner emits only a `payload.gaps[]` authoring specification. Drafting is read-only `doc-author` work; approved replacement is guarded by `authoring-baseline` then `authoring-commit`.
+Scanner emits only a `payload.gaps[]` authoring specification. Drafting is read-only `doc-author` work; approved replacement is guarded by `authoring-baseline` then `authoring-commit`. Garden processes an `AGENTS.md` gap before a `CLAUDE.md` gap from the same snapshot (D13 ordering), so the `@AGENTS.md` import never points at a rejected or absent document.
 
 ## Stable output contract
 
