@@ -22,6 +22,8 @@ doc-author가 여러 문서를 다룰 때의 연결 정책:
 
 1. **ARCHITECTURE 참조 포인터** — CLAUDE.md / AGENTS.md 생성 시, ARCHITECTURE.md가 **이미 존재하거나 같은 garden 세션에서 적용 확정된 경우에만** "코드 구조는 ARCHITECTURE.md 참조" 한 줄 포인터를 삽입한다 (`@import` 아님 — `@import`는 세션마다 전량 로드되어 토큰 낭비). **거부된/미존재 문서로의 포인터는 금지** — dead-reference를 새로 만들기 때문.
 
-2. **CLAUDE ↔ AGENTS 공존 전략** — 두 문서 내용이 거의 동일하면 중복 제거를 위해 공존 전략을 **제안**한다: 심볼릭 링크 또는 `@AGENTS.md` import. (Codex는 CLAUDE.md를 자동으로 읽지 않으므로 둘이 분리돼 있을 수 있음을 고려.)
+2. **AGENTS.md 우선 단일 소스 (D13)** — 기본 관리 문서는 **AGENTS.md**다. 런타임 공용 지침(명령/컨벤션/구조/함정)은 전부 AGENTS.md에 두고, CLAUDE.md는 첫 줄 `@AGENTS.md` import + **Claude Code 특화 내용만** 담는 thin wrapper로 유지한다. 공용 지침을 CLAUDE.md에 중복 기재하지 않는다. (rule 1의 `@import` 토큰 비용 경고는 ARCHITECTURE 같은 참고 문서에 대한 것이다 — AGENTS.md는 세션마다 로드되어야 하는 지침 본문이므로 `@import`가 의도된 동작.)
 
-3. **심볼릭 링크는 제안만** — 심볼릭 링크는 Windows 호환성 위험이 있으므로 **자동 생성하지 않는다**. 제안만 하고, 사용자 승인 후 garden이 생성한다. 기본은 `@import` / 참조 포인터.
+3. **AGENTS-first 순서** — 같은 garden 세션에서 AGENTS.md gap을 CLAUDE.md gap보다 먼저 처리한다. `@AGENTS.md` import는 AGENTS.md가 **이미 존재하거나 같은 세션에서 적용 확정된 경우에만** 삽입한다(rule 1의 dead-pointer 금지와 동일 원리). AGENTS.md 생성이 거부되면 CLAUDE.md는 thin wrapper로 전환하지 않고 단독 full 골격(`claude-md.md` fallback)을 유지한다.
+
+4. **심볼릭 링크 금지** — 심볼릭 링크 공존은 Windows 호환성 위험이 있고 scanner의 non-symlink discovery 정책과 충돌해(symlink 문서는 스캔에서 제외됨) 사용하지 않는다. 공존 수단은 `@AGENTS.md` import 하나다.

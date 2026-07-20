@@ -187,6 +187,8 @@ a newer snapshot is preserved, and an already absent snapshot is idempotent succ
 
 **Never** treat `size-warning` as auto-fixable — there is no replacement pair (splitting is structural judgment, not substitution). Authoring lives in `payload.gaps[]`, never in `documents[].issues[]`.
 
+**Default target-project doc policy (D13, AGENTS-first single source)**: shared instructions live in the target's `AGENTS.md`; its `CLAUDE.md` is a thin `@AGENTS.md` wrapper holding Claude Code-specific content only. Garden processes `AGENTS.md` gaps before `CLAUDE.md` gaps; the import is inserted only when `AGENTS.md` exists or was committed in the same session. See `skills/deep-docs-workflow/references/authoring-rules/`.
+
 ### `garden-ignored.json` schema
 
 ```json

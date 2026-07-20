@@ -71,6 +71,8 @@ D/E state is in-memory for this invocation only. A/D project-document edits rema
 
 ### Authoring decisions
 
+Process gaps AGENTS-first (authoring-rules D13): handle an `AGENTS.md` gap before a `CLAUDE.md` gap from the same frozen snapshot. A `CLAUDE.md` draft may carry the `@AGENTS.md` import and migration removals only when `AGENTS.md` already exists or its authoring commit succeeded earlier in this session; if the `AGENTS.md` gap was rejected, the `CLAUDE.md` draft uses the standalone skeleton without the import. When authoring `AGENTS.md` while a root `CLAUDE.md` exists, attach that document's content to the `doc-author` prompt as the migration source.
+
 For every frozen `payload.gaps[]` item, keep the following order:
 
 1. Before dispatching `doc-author`, call `authoring-baseline` with the exact root-only `{ target_path, mode, doc_kind }`. This captures create absence or restructure bytes through the runtime.
@@ -81,7 +83,7 @@ For every frozen `payload.gaps[]` item, keep the following order:
 6. The host session must not perform a second Write or patch of that document.
 7. For an optional authoring-gap C decision, obtain `signature` and call `garden-ignore` exactly as for an issue.
 
-Cross-document pointers are added only when their target already exists or was approved and committed in this same session. Coexistence through a symlink or import is a proposal requiring separate approval, never an implicit mutation.
+Cross-document pointers and the `@AGENTS.md` import are added only when their target already exists or was approved and committed in this same session. The default coexistence policy is AGENTS-first single source: `AGENTS.md` holds shared instructions and `CLAUDE.md` keeps only the import plus Claude Code-specific content. Symlink coexistence is not used.
 
 ### Completion and invalidation
 

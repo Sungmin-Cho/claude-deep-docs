@@ -4,6 +4,13 @@
 
 `doc-author`가 AGENTS.md를 **생성/재구성**할 때 따르는 규칙. 출처는 OpenAI Codex 공식 가이드 + agents.md 표준.
 
+## 역할 — 기본(primary) 관리 문서 (D13)
+
+AGENTS.md는 프로젝트 에이전트 지침의 **단일 소스**다. 런타임 공용 지침(overview/명령/컨벤션/구조/함정)은 전부 여기에 담고, CLAUDE.md는 `@AGENTS.md`를 import하는 thin wrapper로 유지한다 (`claude-md.md` / `README.md` cross-document D13 참조).
+
+- create/restructure 시 root CLAUDE.md가 존재하면 garden이 그 내용을 **이관 소스로 첨부**한다 — 런타임 공용 블록은 AGENTS.md draft로 흡수한다 (복사가 아닌 이동 — CLAUDE.md 쪽 제거는 이어지는 claude-md restructure가 per-removal 승인으로 처리).
+- **Claude Code 특화 내용(hooks / slash command / MCP / permissions)은 AGENTS.md에 넣지 않는다** — 다른 런타임에 무의미하고 32KiB 예산만 낭비한다. 그런 블록은 CLAUDE.md 잔류 대상이다.
+
 ## 길이 — 줄 + 바이트 병행 (비대칭)
 
 - **soft 목표 ≤100줄** — deep-docs의 줄 기반 size-warning 측정과 호환.
@@ -19,7 +26,8 @@ overview / setup / test / style / structure / PR / security / boundaries
 
 ## 복사 금지 / 회피
 
-- **README / CLAUDE.md 내용 복사 금지** — Codex는 README / CLAUDE.md를 **자동으로 읽지 않으므로** 복사는 32KiB 바이트 예산만 낭비한다.
+- **README 내용 복사 금지** — Codex는 README를 **자동으로 읽지 않으므로** 복사는 32KiB 바이트 예산만 낭비한다.
+- **CLAUDE.md 공용 콘텐츠는 복사가 아니라 이관** — D13에 따라 공용 지침의 소스는 AGENTS.md다. 이관 후 CLAUDE.md에 같은 내용이 남는 중복은 이어지는 claude-md restructure에서 제거를 승인받는다.
 - 내부 구분자 문자열 `--- project-doc ---`를 본문에 넣지 말 것 (Codex가 문서 경계 표시에 사용).
 
 ## 계층 / override 인지

@@ -87,8 +87,10 @@ $deep-docs:deep-docs audit
 
 | 규칙 | 설명 | 처리 방법 |
 |---|---|---|
-| 부재 문서 | 권장 `CLAUDE.md`/`AGENTS.md`(빌드 매니페스트 + 소스 디렉토리) 또는 `ARCHITECTURE.md`(~10k+ LOC)가 없는 경우 | `garden`이 코드 분석으로 draft를 작성해 승인 후 기록 |
-| 빈약 문서 | 기존 문서가 공식 골격에 명백히 미달하는 경우 | `garden`이 고유 콘텐츠를 기본 보존하며 재구성 |
+| 부재 문서 | 권장 `AGENTS.md`/`CLAUDE.md`(빌드 매니페스트 + 소스 디렉토리; `AGENTS.md`는 root `CLAUDE.md`가 이미 있을 때도) 또는 `ARCHITECTURE.md`(~10k+ LOC)가 없는 경우 | `garden`이 코드 분석으로 draft를 작성해 승인 후 기록 |
+| 빈약 문서 | 기존 문서가 공식 골격에 명백히 미달하는 경우 — `@AGENTS.md` import 없이 공용 지침을 담은 `CLAUDE.md` 포함 | `garden`이 고유 콘텐츠를 기본 보존하며 재구성 |
+
+기본 관리 정책은 **AGENTS-first 단일 소스**입니다: 공용 에이전트 지침은 `AGENTS.md`에 두고, `CLAUDE.md`는 `@AGENTS.md` import + Claude Code 특화 메모만 담는 thin wrapper로 유지합니다. `garden`은 `AGENTS.md`를 먼저 작성한 뒤에만 `CLAUDE.md`를 전환하며, 공용 콘텐츠 이관은 per-removal 승인으로 처리합니다 (`AGENTS.md` draft를 거부하면 `CLAUDE.md`는 단독 full 문서로 유지됩니다).
 
 Authoring은 `skills/deep-docs-workflow/references/authoring-rules/`의 내장 규칙을 사용합니다 (CLAUDE.md는 Anthropic 메모리 가이드, AGENTS.md는 OpenAI Codex/agents.md 표준, ARCHITECTURE.md는 matklad 표준). 길이 목표는 `CLAUDE.md`/`ARCHITECTURE.md` 줄 수에 대해 soft이며(과도하게 긴 draft는 비차단 size-warning으로 보고 — 줄 기반 `audit`과 대칭), `AGENTS.md`는 32&nbsp;KiB 바이트 hard 차단선을 강제합니다(Codex가 초과분을 잘라냄) — 이 바이트/줄 비대칭에 유의: authoring은 Codex 바이트 예산을 고려하고 `audit`은 줄 기반을 유지합니다.
 
