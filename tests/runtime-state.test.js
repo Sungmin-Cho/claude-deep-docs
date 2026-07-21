@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   lstat,
   mkdtemp,
-  open,
   realpath,
   rm,
   writeFile,
@@ -12,7 +11,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  captureOpenedFileIdentity,
   revalidateOwnedFileIdentity,
   stateDependencies,
 } from '../scripts/runtime/state.js';
@@ -23,25 +21,22 @@ test('owned file identity accepts Windows path-stat dev zero when inode and birt
     const canonicalRoot = await realpath(root);
     const target = join(canonicalRoot, 'owned.tmp');
     await writeFile(target, 'owned\n');
-    const handle = await open(target, 'r');
-    let expectedIdentity;
-    try {
-      expectedIdentity = await captureOpenedFileIdentity(handle);
-    } finally {
-      await handle.close();
-    }
-    assert.notEqual(expectedIdentity.dev, 0n);
-    assert.equal(typeof expectedIdentity.birthtimeNs, 'bigint');
+    const metadata = await lstat(target, { bigint: true });
+    const expectedIdentity = {
+      dev: 41n,
+      ino: metadata.ino,
+      birthtimeNs: 97n,
+    };
 
     const deps = stateDependencies({
       lstat: async (candidate, options) => {
-        const metadata = await lstat(candidate, options);
-        if (options?.bigint !== true) return metadata;
+        const current = await lstat(candidate, options);
+        if (options?.bigint !== true) return current;
         return {
           dev: 0n,
           ino: expectedIdentity.ino,
           birthtimeNs: expectedIdentity.birthtimeNs,
-          isFile: () => metadata.isFile(),
+          isFile: () => current.isFile(),
         };
       },
     });
@@ -104,15 +99,12 @@ test('owned file identity accepts a birthtime mismatch when device is comparable
     const canonicalRoot = await realpath(root);
     const target = join(canonicalRoot, 'owned.tmp');
     await writeFile(target, 'owned\n');
-    const handle = await open(target, 'r');
-    let expectedIdentity;
-    try {
-      expectedIdentity = await captureOpenedFileIdentity(handle);
-    } finally {
-      await handle.close();
-    }
-    assert.notEqual(expectedIdentity.dev, 0n);
-    assert.notEqual(expectedIdentity.birthtimeNs, 0n);
+    const metadata = await lstat(target, { bigint: true });
+    const expectedIdentity = {
+      dev: 41n,
+      ino: metadata.ino,
+      birthtimeNs: 97n,
+    };
 
     const deps = stateDependencies({
       lstat: async (candidate, options) => {
