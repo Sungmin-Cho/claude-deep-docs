@@ -250,21 +250,44 @@ function stableFileIdentity(metadata) {
   if (!metadata
       || typeof metadata.dev !== 'bigint'
       || typeof metadata.ino !== 'bigint'
+      || typeof metadata.birthtimeNs !== 'bigint'
       || metadata.dev < 0n
       || metadata.ino <= 0n
+      || metadata.birthtimeNs < 0n
       || typeof metadata.isFile !== 'function'
       || !metadata.isFile()) {
     return null;
   }
-  return Object.freeze({ dev: metadata.dev, ino: metadata.ino });
+  return Object.freeze({
+    dev: metadata.dev,
+    ino: metadata.ino,
+    birthtimeNs: metadata.birthtimeNs,
+  });
 }
 
 function validFileIdentity(identity) {
   return identity
     && typeof identity.dev === 'bigint'
     && typeof identity.ino === 'bigint'
+    && typeof identity.birthtimeNs === 'bigint'
     && identity.dev >= 0n
-    && identity.ino > 0n;
+    && identity.ino > 0n
+    && identity.birthtimeNs >= 0n;
+}
+
+// Windows path-based lstat reports dev as 0n, so dev is only usable as proof
+// when both sides are nonzero; when it is comparable it is strict and
+// sufficient by itself — birthtimeNs is never consulted, because some
+// filesystems synthesize birthtimeNs from ctime, which a write changes. When
+// dev is not comparable, birthtimeNs becomes a required fail-closed second
+// proof: ino alone is never accepted as sole proof of identity.
+function matchingFileIdentity(current, expected) {
+  if (current.ino !== expected.ino) return false;
+  const devComparable = current.dev !== 0n && expected.dev !== 0n;
+  if (devComparable) return current.dev === expected.dev;
+  return current.birthtimeNs !== 0n
+    && expected.birthtimeNs !== 0n
+    && current.birthtimeNs === expected.birthtimeNs;
 }
 
 export async function captureOpenedFileIdentity(handle, code = 'state') {
@@ -312,8 +335,7 @@ export async function revalidateOwnedFileIdentity(
   }
   const observedIdentity = stableFileIdentity(metadata);
   if (!observedIdentity
-      || observedIdentity.dev !== expectedIdentity.dev
-      || observedIdentity.ino !== expectedIdentity.ino) {
+      || !matchingFileIdentity(observedIdentity, expectedIdentity)) {
     throw stateError(code, 'opened file identity changed');
   }
   return guard;
