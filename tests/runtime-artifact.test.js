@@ -1096,7 +1096,12 @@ test('zero device with a nonzero inode remains a usable stable identity', async 
         return {
           stat: async (...args) => {
             const metadata = await handle.stat(...args);
-            return { dev: 0n, ino: metadata.ino, isFile: () => metadata.isFile() };
+            return {
+              dev: 0n,
+              ino: metadata.ino,
+              birthtimeNs: 97n,
+              isFile: () => metadata.isFile(),
+            };
           },
           writeFile: async (...args) => handle.writeFile(...args),
           sync: async () => handle.sync(),
@@ -1106,7 +1111,12 @@ test('zero device with a nonzero inode remains a usable stable identity', async 
       lstat: async (candidate, options) => {
         const metadata = await lstat(candidate, options);
         if (options?.bigint !== true) return metadata;
-        return { dev: 0n, ino: metadata.ino, isFile: () => metadata.isFile() };
+        return {
+          dev: 0n,
+          ino: metadata.ino,
+          birthtimeNs: 97n,
+          isFile: () => metadata.isFile(),
+        };
       },
     },
   }), { ok: true });
