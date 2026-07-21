@@ -89,7 +89,7 @@ test('tracked public instructions use the Node version command, not the local jq
   }
 });
 
-test('release train is 1.6.0', async () => {
+test('release train is 1.6.1', async () => {
   const [claude, codex, pkg, ...fixtures] = await Promise.all([
     json('.claude-plugin/plugin.json'),
     json('.codex-plugin/plugin.json'),
@@ -99,10 +99,10 @@ test('release train is 1.6.0', async () => {
     json('tests/fixtures/sample-last-scan-invalid-summary.json'),
     json('tests/fixtures/sample-last-scan-bad-summary-counts.json'),
   ]);
-  assert.equal(claude.version, '1.6.0');
-  assert.equal(codex.version, '1.6.0');
-  assert.equal(pkg.version, '1.6.0');
-  assert.deepEqual(fixtures.map((fixture) => fixture.envelope.producer_version), Array(4).fill('1.6.0'));
+  assert.equal(claude.version, '1.6.1');
+  assert.equal(codex.version, '1.6.1');
+  assert.equal(pkg.version, '1.6.1');
+  assert.deepEqual(fixtures.map((fixture) => fixture.envelope.producer_version), Array(4).fill('1.6.1'));
   for (const fixture of fixtures) {
     assert.deepEqual(fixture.envelope.provenance.tool_versions, { node: 'v22.0.0' });
   }

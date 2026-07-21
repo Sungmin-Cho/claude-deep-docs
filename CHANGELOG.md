@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.1] — 2026-07-21
+
+### Fixed
+
+- **Windows dev-field identity false-positive** (same root cause as [claude-deep-wiki#30](https://github.com/Sungmin-Cho/claude-deep-wiki/issues/30) Issue 1) — on native Windows + Node 22, path-based `lstat` can report `dev: 0n` while fd-based `fstat` reports the real device id for the same file, so the strict `dev` equality in `revalidateOwnedFileIdentity` rejected every owned file and broke all atomic writes (scan artifact saves, authoring commits, and the mutation lock) on that platform.
+  - File identity is now `{dev, ino, birthtimeNs}` with an adaptive rule: `ino` always compares strictly; `dev` is the sole strict proof when both sides are nonzero (`birthtimeNs` is never consulted there — some filesystems synthesize it from `ctime`, which the temp-file write changes); when `dev` is not comparable, `birthtimeNs` must be nonzero on both sides and equal, otherwise the check fails closed — an inode alone never proves identity.
+  - All three write paths (artifact atomic replace, authoring commit, lock-owner creation) re-capture the identity on the same open fd after the final write + sync, so filesystems that synthesize `birthtime` from `ctime` can no longer self-reject the just-written file or strand `.mutation.lock` in a permanently busy state.
+  - Identity tests now build stat values from synthetic bigints instead of host filesystem readings, keeping the suite deterministic on volumes that report a zero device id or no birth time. Two red/green-verified regression tests cover the zero-device birthtime-shift scenario.
+- Verified by a 4-round 3-way cross-model review loop (Claude Opus + Codex review + Codex adversarial) converging on unanimous APPROVE; all four gates green (`npm test` 84/84, `validate:envelope`, `validate:codex`, `verify:fixes` Failed: 0).
+- No schema change: envelope `1.0` / last-scan payload `1.1` unchanged.
+
 ## [1.6.0] — 2026-07-20
 
 ### Changed

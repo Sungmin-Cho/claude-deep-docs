@@ -157,6 +157,11 @@ async function atomicStateReplace({
     temporaryIdentity = await captureOpenedFileIdentity(handle, 'state');
     await handle.writeFile(bytes);
     await handle.sync();
+    // Re-capture on the same fd: a write can change a synthesized birthtime
+    // (zero-device filesystems derive it from ctime), so the proof used by
+    // later revalidation must reflect the post-write state, not the
+    // open-time snapshot.
+    temporaryIdentity = await captureOpenedFileIdentity(handle, 'state');
     await handle.close();
     handle = undefined;
     if (typeof runtimeDeps.beforeRename === 'function') {

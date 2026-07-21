@@ -7,6 +7,17 @@
 
 ---
 
+## [1.6.1] — 2026-07-21
+
+### 수정됨
+
+- **Windows dev 필드 identity false-positive** ([claude-deep-wiki#30](https://github.com/Sungmin-Cho/claude-deep-wiki/issues/30) Issue 1과 동일 근본 원인) — native Windows + Node 22에서 경로 기반 `lstat`이 같은 파일에 대해 `dev: 0n`을 보고하는 반면 fd 기반 `fstat`은 실제 device id를 보고하여, `revalidateOwnedFileIdentity`의 엄격한 `dev` 동등 비교가 소유 파일을 항상 거부해 해당 플랫폼에서 모든 atomic write(scan 아티팩트 저장, authoring commit, mutation lock)가 깨졌습니다.
+  - 파일 identity를 `{dev, ino, birthtimeNs}`로 확장하고 적응형 규칙을 적용: `ino`는 항상 엄격 비교. `dev`는 양측 모두 nonzero일 때 단독 엄격 증명이며 이 경로에서 `birthtimeNs`는 참조하지 않습니다(일부 파일시스템이 `ctime`에서 합성하고, 임시 파일 write가 이를 변경하기 때문). `dev` 비교가 불가능하면 `birthtimeNs`가 양측 nonzero이면서 일치해야 하고, 아니면 fail-closed로 거부합니다 — inode 단독으로는 identity를 증명할 수 없습니다.
+  - 세 write 경로(artifact atomic replace, authoring commit, lock-owner 생성) 모두 최종 write + sync 후 같은 열린 fd로 identity를 재캡처하여, `birthtime`을 `ctime`에서 합성하는 파일시스템에서 방금 쓴 파일을 스스로 거부하거나 `.mutation.lock`이 영구 busy 상태로 좌초되는 문제를 차단했습니다.
+  - identity 테스트가 호스트 파일시스템 실측값 대신 합성 bigint로 stat 값을 구성해, zero device id 또는 birth time 미보고 볼륨에서도 스위트가 결정적으로 실행됩니다. zero-device birthtime-shift 시나리오를 다루는 red/green 검증 회귀 테스트 2건을 추가했습니다.
+- 4라운드 3-way cross-model 리뷰 루프(Claude Opus + Codex review + Codex adversarial)가 만장일치 APPROVE로 수렴하며 검증 완료. 4개 게이트 모두 green (`npm test` 84/84, `validate:envelope`, `validate:codex`, `verify:fixes` Failed: 0).
+- 스키마 변경 없음: envelope `1.0` / last-scan payload `1.1` 그대로입니다.
+
 ## [1.6.0] — 2026-07-20
 
 ### 변경됨

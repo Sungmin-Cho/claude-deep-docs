@@ -1096,7 +1096,12 @@ test('zero device with a nonzero inode remains a usable stable identity', async 
         return {
           stat: async (...args) => {
             const metadata = await handle.stat(...args);
-            return { dev: 0n, ino: metadata.ino, isFile: () => metadata.isFile() };
+            return {
+              dev: 0n,
+              ino: metadata.ino,
+              birthtimeNs: 97n,
+              isFile: () => metadata.isFile(),
+            };
           },
           writeFile: async (...args) => handle.writeFile(...args),
           sync: async () => handle.sync(),
@@ -1106,11 +1111,86 @@ test('zero device with a nonzero inode remains a usable stable identity', async 
       lstat: async (candidate, options) => {
         const metadata = await lstat(candidate, options);
         if (options?.bigint !== true) return metadata;
-        return { dev: 0n, ino: metadata.ino, isFile: () => metadata.isFile() };
+        return {
+          dev: 0n,
+          ino: metadata.ino,
+          birthtimeNs: 97n,
+          isFile: () => metadata.isFile(),
+        };
       },
     },
   }), { ok: true });
   assert.equal(await readFile(target, 'utf8'), 'published with zero device\n');
+});
+
+function zeroDeviceBirthtimeShiftDeps() {
+  // Simulates a zero-device filesystem that synthesizes birthtime from ctime:
+  // the first fstat on a freshly opened handle reports the open-time
+  // birthtime, and every fstat after that (i.e. after the write that follows)
+  // reports a distinct, later birthtime. Path-based lstat always reports the
+  // settled post-write value, matching what a real filesystem would show by
+  // the time any revalidation queries the path.
+  return {
+    open: async (candidate, flags) => {
+      const handle = await fsOpen(candidate, flags);
+      let calls = 0;
+      return {
+        stat: async (...args) => {
+          calls += 1;
+          const metadata = await handle.stat(...args);
+          return {
+            dev: 0n,
+            ino: metadata.ino,
+            birthtimeNs: calls === 1 ? 1000n : 2000n,
+            isFile: () => metadata.isFile(),
+          };
+        },
+        writeFile: async (...args) => handle.writeFile(...args),
+        sync: async () => handle.sync(),
+        close: async () => handle.close(),
+      };
+    },
+    lstat: async (candidate, options) => {
+      const metadata = await lstat(candidate, options);
+      if (options?.bigint !== true) return metadata;
+      return {
+        dev: 0n,
+        ino: metadata.ino,
+        birthtimeNs: 2000n,
+        isFile: () => metadata.isFile(),
+      };
+    },
+  };
+}
+
+test('zero-device birthtime shift during write no longer false-rejects the atomic write or lock release', async () => {
+  const root = await gitProject();
+  const artifact = await fixture(root, { deps: zeroDeviceBirthtimeShiftDeps() });
+  assert.equal(artifact.envelope.producer, 'deep-docs');
+  const target = join(root, '.deep-docs', 'last-scan.json');
+  assert.deepEqual(await readFile(target), serializeStateJson(artifact));
+  assert.equal(
+    await lstat(join(root, '.deep-docs', '.mutation-lock')).catch((error) => error.code),
+    'ENOENT',
+  );
+});
+
+test('zero-device birthtime shift during write no longer false-rejects an authoring commit', async () => {
+  const root = await temporaryRoot('deep docs authoring birthtime shift ');
+  const target = join(root, 'AGENTS.md');
+  await writeFile(target, 'approved user bytes\n');
+  const baseline = await captureBaseline({
+    root, targetPath: 'AGENTS.md', mode: 'restructure', docKind: 'agents-md',
+  });
+  assert.deepEqual(await commitAuthoring({
+    root,
+    baseline,
+    draftBody: 'published after birthtime shift\n',
+    preservedBlocks: [],
+    docKind: 'agents-md',
+    deps: zeroDeviceBirthtimeShiftDeps(),
+  }), { ok: true });
+  assert.equal(await readFile(target, 'utf8'), 'published after birthtime shift\n');
 });
 
 test('pre-open destination swaps and parent-component swaps fail closed with safe cleanup refusal', async (t) => {
