@@ -424,6 +424,11 @@ export async function withStateMutationLock(root, operation, overrides = {}) {
     ownerIdentity = await captureOpenedFileIdentity(ownerHandle, 'state-lock');
     await ownerHandle.writeFile(`${owner}\n`, 'utf8');
     await ownerHandle.sync();
+    // Re-capture on the same fd: a write can change a synthesized birthtime
+    // (zero-device filesystems derive it from ctime), so the proof used by
+    // later revalidation (lock release) must reflect the post-write state,
+    // not the open-time snapshot.
+    ownerIdentity = await captureOpenedFileIdentity(ownerHandle, 'state-lock');
     await ownerHandle.close();
     ownerHandle = undefined;
   } catch (error) {
